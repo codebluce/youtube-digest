@@ -21,6 +21,7 @@ Install dependency:  uv pip install youtube-transcript-api
 
 import argparse
 import json
+import os
 import re
 import sys
 
@@ -103,13 +104,47 @@ def main():
             first_error_msg = str(first_error)
             if "blocking requests from your ip" in error_msg.lower() or "blocking requests from your ip" in first_error_msg.lower():
                 print(json.dumps({"error": "YouTube is blocking this server's IP. Use HTTPS_PROXY or fetch from another machine. See SKILL.md pitfall #1."}, ensure_ascii=False))
-            elif "disabled" in error_msg.lower() or "disabled" in first_error_msg.lower():
-                print(json.dumps({"error": "Transcripts are disabled for this video."}, ensure_ascii=False))
-            elif "no transcript" in error_msg.lower() or "no transcript" in first_error_msg.lower():
-                print(json.dumps({"error": "No transcript found. Try specifying another language with --language."}, ensure_ascii=False))
+                sys.exit(1)
+            # ── ASR Fallback ──
+            # When YouTube transcript is disabled or unavailable, download audio
+            # and transcribe locally with faster-whisper.
+            fallback_ok = (
+                "disabled" in error_msg.lower() or "disabled" in first_error_msg.lower() or
+                "no transcript" in error_msg.lower() or "no transcript" in first_error_msg.lower()
+            )
+            if fallback_ok:
+                print(f"YouTube transcript unavailable — falling back to local ASR...", file=sys.stderr)
+                try:
+                    # Download audio
+                    import subprocess as _sp
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    dl_script = os.path.join(script_dir, "download_audio.py")
+                    asr_script = os.path.join(script_dir, "transcribe_audio.py")
+                    audio_path = f"/tmp/yt_{video_id}.wav"
+                    
+                    _sp.run([sys.executable, dl_script, args.url, "--output", audio_path],
+                            check=True, timeout=300, capture_output=True)
+                    
+                    # Transcribe
+                    lang = languages[0] if languages else "zh"
+                    model = os.environ.get("WHISPER_MODEL", "small")
+                    result = _sp.run([sys.executable, asr_script, audio_path,
+                                     "--language", lang, "--model", model],
+                                    check=True, timeout=600, capture_output=True, text=True)
+                    
+                    # Clean up audio
+                    try: os.unlink(audio_path)
+                    except: pass
+                    
+                    # Print ASR result and return
+                    print(result.stdout.strip())
+                    return
+                except Exception as asr_err:
+                    print(json.dumps({"error": f"ASR fallback also failed: {asr_err}", "yt_error": error_msg}, ensure_ascii=False))
+                    sys.exit(1)
             else:
                 print(json.dumps({"error": error_msg, "first_error": first_error_msg}, ensure_ascii=False))
-            sys.exit(1)
+                sys.exit(1)
 
     full_text = " ".join(seg["text"] for seg in segments)
     timestamped = "\n".join(

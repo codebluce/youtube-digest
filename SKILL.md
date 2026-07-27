@@ -35,9 +35,17 @@ The core value is not transcription — it is the article architecture defined i
 
 ```bash
 # Dependencies
-uv pip install youtube-transcript-api requests
-# PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests
+uv pip install youtube-transcript-api requests yt-dlp faster-whisper
+# PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests yt-dlp faster-whisper
+# ffmpeg is also required (for audio download): sudo apt install ffmpeg
 ```
+
+## Transcript Strategy
+
+1. **YouTube captions first** — `fetch_transcript.py` tries YouTubeTranscriptApi with preferred languages.
+2. **ASR fallback** — when captions are disabled or unavailable, the script auto-downloads audio (yt-dlp → 16kHz WAV) and transcribes locally with faster-whisper (small model default, ~12K tokens to LLM for article generation).
+   - Set `WHISPER_MODEL` env var to override model size (tiny/small/medium/large-v3).
+   - CPU-only server: small model ~15-25 min for 30 min audio.
 
 Feishu delivery requires an app (custom bot webhook cannot send files). Set env vars before use:
 
