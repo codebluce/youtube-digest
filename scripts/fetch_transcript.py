@@ -3,7 +3,9 @@
 Fetch a YouTube video transcript and output it as structured JSON.
 
 Usage:
-    uv run python3 fetch_transcript.py <url_or_video_id> [--language en,tr] [--timestamps]
+    uv run python3 fetch_transcript.py <url_or_video_id> [--language zh,en] [--timestamps]
+
+Default language preference is Chinese first, then English. If the preferred language fetch fails, the script retries once without language restriction.
 
 Output (JSON):
     {
@@ -76,8 +78,8 @@ def fetch_transcript(video_id: str, languages: list = None):
 def main():
     parser = argparse.ArgumentParser(description="Fetch YouTube transcript as JSON")
     parser.add_argument("url", help="YouTube URL or video ID")
-    parser.add_argument("--language", "-l", default=None,
-                        help="Comma-separated language codes (e.g. en,tr). Default: auto")
+    parser.add_argument("--language", "-l", default="zh,en",
+                        help="Comma-separated language codes (e.g. zh,en). Default: zh,en")
     parser.add_argument("--timestamps", "-t", action="store_true",
                         help="Include timestamped text in output")
     parser.add_argument("--text-only", action="store_true",
@@ -89,17 +91,25 @@ def main():
 
     try:
         segments = fetch_transcript(video_id, languages)
-    except Exception as e:
-        error_msg = str(e)
-        if "blocking requests from your ip" in error_msg.lower():
-            print(json.dumps({"error": "YouTube is blocking this server's IP. Use HTTPS_PROXY or fetch from another machine. See SKILL.md pitfall #1."}))
-        elif "disabled" in error_msg.lower():
-            print(json.dumps({"error": "Transcripts are disabled for this video."}))
-        elif "no transcript" in error_msg.lower():
-            print(json.dumps({"error": "No transcript found. Try specifying a language with --language."}))
-        else:
-            print(json.dumps({"error": error_msg}))
-        sys.exit(1)
+        resolved_language = ",".join(languages) if languages else "auto"
+    except Exception as first_error:
+        # Default zh,en may fail when a video only exposes another transcript language.
+        # Retry once with YouTubeTranscriptApi's auto selection before reporting failure.
+        try:
+            segments = fetch_transcript(video_id, None)
+            resolved_language = "auto_after_preferred_failed"
+        except Exception as e:
+            error_msg = str(e)
+            first_error_msg = str(first_error)
+            if "blocking requests from your ip" in error_msg.lower() or "blocking requests from your ip" in first_error_msg.lower():
+                print(json.dumps({"error": "YouTube is blocking this server's IP. Use HTTPS_PROXY or fetch from another machine. See SKILL.md pitfall #1."}, ensure_ascii=False))
+            elif "disabled" in error_msg.lower() or "disabled" in first_error_msg.lower():
+                print(json.dumps({"error": "Transcripts are disabled for this video."}, ensure_ascii=False))
+            elif "no transcript" in error_msg.lower() or "no transcript" in first_error_msg.lower():
+                print(json.dumps({"error": "No transcript found. Try specifying another language with --language."}, ensure_ascii=False))
+            else:
+                print(json.dumps({"error": error_msg, "first_error": first_error_msg}, ensure_ascii=False))
+            sys.exit(1)
 
     full_text = " ".join(seg["text"] for seg in segments)
     timestamped = "\n".join(
@@ -112,6 +122,7 @@ def main():
 
     result = {
         "video_id": video_id,
+        "language": resolved_language,
         "segment_count": len(segments),
         "duration": format_timestamp(segments[-1]["start"] + segments[-1]["duration"]) if segments else "0:00",
         "full_text": full_text,

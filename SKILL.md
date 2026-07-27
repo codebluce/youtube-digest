@@ -1,7 +1,7 @@
 ---
-name: youtube-knowledge-digest
-description: "YouTube链接转深度知识文章MD并发送飞书。"
-version: 1.1.0
+name: youtube-digest
+description: "YouTube链接转深度知识文章MD，默认中文输出，可选发送飞书。"
+version: 1.2.0
 author: peizhiwu
 license: MIT
 metadata:
@@ -10,11 +10,11 @@ metadata:
     related_skills: [youtube-content]
 ---
 
-# YouTube Knowledge Digest
+# YouTube Digest
 
 ## Overview
 
-Pipeline: **YouTube URL → transcript → restructured knowledge article (.md) → Feishu file delivery**.
+Pipeline: **YouTube URL → transcript → 中文深度知识文章 (.md) → 可选飞书发送**.
 
 The core value is not transcription — it is the article architecture defined in `references/article-blueprint.md`. The article is designed around how readers absorb, retain, and re-tell knowledge: structure-first navigation, chunked chapters each closed with takeaways (retrieval practice), a final systematic review (spaced repetition), and a "talking-points arsenal" so the reader can re-tell the content to others (Feynman principle).
 
@@ -23,14 +23,20 @@ The core value is not transcription — it is the article architecture defined i
 - User pastes a YouTube URL and asks for 深度文章 / 知识整理 / 拆解 / 学习笔记 / 转述文案
 - User wants the result delivered to Feishu (飞书)
 
-**Don't use for:** a quick one-paragraph summary (use `youtube-content` directly); non-YouTube sources; videos with transcripts disabled.
+**Don't use for:** a quick one-paragraph summary (use `youtube-content` directly); non-YouTube sources; videos with transcripts disabled; requests to fabricate content when transcript fetch fails; copyrighted transcript reposting without transformation.
+
+**Boundaries:**
+- Never invent missing transcript content, timestamps, numbers, guest names, sponsors, charts, or claims.
+- If transcript is incomplete, mark the article as "基于可获取字幕整理" and avoid conclusions that depend on missing segments.
+- If the user asks for Feishu delivery but env vars are missing, deliver the local Markdown path and explicit setup gap; do not report delivery success.
+- Default article language is Chinese. Keep source-language terms only where they improve precision.
 
 ## Setup
 
 ```bash
-# Dependency (brings in requests, needed by the Feishu sender too)
-uv pip install youtube-transcript-api
-# PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api
+# Dependencies
+uv pip install youtube-transcript-api requests
+# PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests
 ```
 
 Feishu delivery requires an app (custom bot webhook cannot send files). Set env vars before use:
@@ -52,19 +58,19 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
    ```bash
    uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps
    ```
-   (No uv on the server: run with the venv python from Setup.) Done when: JSON with non-empty `full_text`. If language fetch fails, retry without `--language`; if still empty, tell the user transcripts are disabled and stop.
+   (No uv on the server: run with the venv python from Setup.) Done when: JSON with non-empty `full_text`. The fetch script defaults to `zh,en` and will retry without language restriction when needed. If still empty, tell the user transcripts are disabled and stop.
 
-2. **Write the article.** Load `references/article-blueprint.md` and follow its module spec exactly. Write in the video's dominant language (default 中文). If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing. Done when: every blueprint module is present and every number in the article traces to the transcript (never invent figures).
+2. **Write the article.** Load `references/article-blueprint.md` and follow its module spec exactly. **Default output language is Chinese regardless of the video's language**; keep original English terms in parentheses on first appearance when useful. If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing. Done when: every blueprint module is present and every number in the article traces to the transcript (never invent figures).
 
-3. **Save the file** to `~/youtube-digests/<video_id>-<slug>.md` (create dir if missing; slug = short pinyin/english title).
+3. **Save the file** to `SKILL_DIR/workspace/articles/<video_id>-<slug>.md` when this repo is local; otherwise use `~/youtube-digests/<video_id>-<slug>.md`. Keep transcripts under `SKILL_DIR/workspace/transcripts/` when available.
 
-4. **Send to Feishu.**
+4. **Send to Feishu if requested.**
    ```bash
-   uv run python3 SKILL_DIR/scripts/send_feishu.py ~/youtube-digests/<file>.md --text "<一句话定位 + 文章字数>"
+   uv run python3 SKILL_DIR/scripts/send_feishu.py SKILL_DIR/workspace/articles/<file>.md --text "<一句话定位 + 文章字数>"
    ```
-   Done when: script exits 0 and prints the message_id. If it exits 2 (missing config), report the env var setup to the user and deliver the local file path instead — do not fake success.
+   Done when: script exits 0 and prints the message_id. If it exits 2 (missing config), report the env var setup to the user and deliver the local file path instead — do not fake success. If the user did not ask for Feishu, skip this step.
 
-5. **Report back** to the user: article path, Feishu delivery status, and the article's 30-second overview section pasted inline.
+5. **Report back** to the user: article path, Feishu delivery status if attempted, and the article's 30-second overview pasted inline.
 
 ## Common Pitfalls
 
@@ -78,6 +84,8 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 
 - [ ] Transcript JSON non-empty and language matches expectation
 - [ ] Article contains ALL blueprint modules (速览 / 知识地图 / 主体章节+Takeaway / 概念卡片 / 系统回顾 / 转述弹药库 / 延伸思考)
+- [ ] 转述弹药库 contains exactly the required three narrative versions: 30s / 3min / 10min
+- [ ] Output language is Chinese by default; original terms are retained only as needed
 - [ ] No invented numbers; conflicts annotated
-- [ ] File saved under `~/youtube-digests/`
+- [ ] File saved under `workspace/articles/` when running inside this local skill repo, otherwise under `~/youtube-digests/`
 - [ ] Feishu script exit 0 with message_id (or honest failure report + local path)
