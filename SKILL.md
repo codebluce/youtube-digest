@@ -1,7 +1,7 @@
 ---
 name: youtube-knowledge-digest
 description: "YouTube链接转深度知识文章MD并发送飞书。"
-version: 1.0.0
+version: 1.1.0
 author: peizhiwu
 license: MIT
 metadata:
