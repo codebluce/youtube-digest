@@ -87,10 +87,17 @@ def main():
     p = argparse.ArgumentParser(description="Send a file to Feishu")
     p.add_argument("file", help="local file path to send")
     p.add_argument("--text", default=None, help="optional text message sent before the file")
+    p.add_argument("--text-file", dest="text_file", default=None,
+                   help="read the preceding text message from a file (use for the cards pack, "
+                        "which is sent as message body rather than as an attachment). "
+                        "Mutually exclusive with --text.")
     p.add_argument("--to", default=None, help="override FEISHU_RECEIVE_ID")
     p.add_argument("--type", dest="rtype", default=None,
                    help="override FEISHU_RECEIVE_ID_TYPE")
     args = p.parse_args()
+
+    if args.text and args.text_file:
+        fail("--text and --text-file are mutually exclusive", code=2)
 
     app_id = os.environ.get("FEISHU_APP_ID")
     app_secret = os.environ.get("FEISHU_APP_SECRET")
@@ -109,11 +116,25 @@ def main():
     except ImportError:
         fail("requests not installed. Run: uv pip install requests", code=2)
 
+    body_text = args.text
+    if args.text_file:
+        if not os.path.isfile(args.text_file):
+            fail(f"text file not found: {args.text_file}", code=2)
+        try:
+            with open(args.text_file, encoding="utf-8") as fh:
+                body_text = fh.read()
+        except OSError as exc:
+            fail(f"cannot read text file: {exc}", code=2)
+        # Feishu rejects oversized text payloads; the cards pack is capped at
+        # 3500 CJK chars by cards-spec, so this only guards against misuse.
+        if len(body_text) > 20000:
+            fail("text body exceeds 20000 chars — send it as a file instead", code=2)
+
     token = get_token(app_id, app_secret)
 
     text_mid = None
-    if args.text:
-        text_mid = send_message(token, receive_id, rtype, "text", {"text": args.text})
+    if body_text:
+        text_mid = send_message(token, receive_id, rtype, "text", {"text": body_text})
 
     file_key = upload_file(token, args.file)
     file_mid = send_message(token, receive_id, rtype, "file", {"file_key": file_key})

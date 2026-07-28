@@ -1,7 +1,14 @@
-*
-!.gitignore
-!README.md
-!transcripts/
-!articles/
-!logs/
-!tmp/
+# 临时文件与中间产物不入库
+tmp/
+logs/
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.part
+
+# 注意：articles/ 与 transcripts/ 是正式产出，必须入库。
+# 不要改回 `*` + 白名单目录的写法 —— `!articles/` 只放行目录本身，
+# 目录内的文件仍会被 `*` 匹配掉，导致 SKILL.md 步骤 2（强制归档转录稿）
+# 与步骤 7（双推产出）静默失效。
+.DS_Store

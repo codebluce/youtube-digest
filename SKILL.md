@@ -1,7 +1,7 @@
 ---
 name: youtube-digest
-description: "YouTube链接转深度知识文章MD，默认中文输出，可选发送飞书。"
-version: 1.2.0
+description: "YouTube链接转深度知识文章MD + 速查卡片包，默认中文输出，可选发送飞书。"
+version: 2.0.0
 author: peizhiwu
 license: MIT
 metadata:
@@ -14,9 +14,22 @@ metadata:
 
 ## Overview
 
-Pipeline: **YouTube URL → transcript → 中文深度知识文章 (.md) → 可选飞书发送**.
+Pipeline: **YouTube URL → transcript → 内容分型 → 深度知识文章 + 速查卡片包 → 校验门禁 → 可选飞书双发**.
 
-The core value is not transcription — it is the article architecture defined in `references/article-blueprint.md`. The article is designed around how readers absorb, retain, and re-tell knowledge: structure-first navigation, chunked chapters each closed with takeaways (retrieval practice), a final systematic review (spaced repetition), and a "talking-points arsenal" so the reader can re-tell the content to others (Feynman principle).
+The core value is not transcription — it is the article architecture defined in `references/article-blueprint.md`. The article is designed around how readers absorb, retain, and re-tell knowledge: structure-first navigation, chunked chapters, credibility tagging so the reader knows what is fact vs. the host's inference, closed-book self-testing (retrieval practice), and a talking-points arsenal with rebuttal preparation.
+
+**This skill produces TWO files per video.** The long-form article is read once; the cards pack is what gets re-opened. Delivering only the article is an incomplete run.
+
+### 漂移控制（重要）
+
+不同 LLM agent 执行本 skill 必须产出**结构一致**的文件。为此：
+
+- `references/article-blueprint.md` 是**契约**，锁定了模块集合、顺序、标题锚点词和每模块最小满足量；
+- `references/content-types.md` 用**机械判定流程**决定哪些条件模块必选，不靠 agent 自由裁量；
+- `references/cards-spec.md` 锁定卡片包的 9 张卡与飞书兼容约束；
+- `scripts/validate_output.py` 是**强制门禁**——产出后必须跑通且 exit 0。
+
+**校验未通过 = 未完成。** 不得交付、不得发送飞书、不得向用户宣称完成。
 
 ## When to Use
 
@@ -28,8 +41,9 @@ The core value is not transcription — it is the article architecture defined i
 **Boundaries:**
 - Never invent missing transcript content, timestamps, numbers, guest names, sponsors, charts, or claims.
 - If transcript is incomplete, mark the article as "基于可获取字幕整理" and avoid conclusions that depend on missing segments.
-- If the user asks for Feishu delivery but env vars are missing, deliver the local Markdown path and explicit setup gap; do not report delivery success.
+- If the user asks for Feishu delivery but env vars are missing, deliver the local file paths and the explicit setup gap; do not report delivery success.
 - Default article language is Chinese. Keep source-language terms only where they improve precision.
+- Never label a vendor's own claim, a CEO's forecast, or one party's court allegation as 【实】.
 
 ## Setup
 
@@ -43,7 +57,7 @@ uv pip install youtube-transcript-api requests yt-dlp faster-whisper
 ## Transcript Strategy
 
 1. **YouTube captions first** — `fetch_transcript.py` tries YouTubeTranscriptApi with preferred languages.
-2. **ASR fallback** — when captions are disabled or unavailable, the script auto-downloads audio (yt-dlp → 16kHz WAV) and transcribes locally with faster-whisper (small model default, ~12K tokens to LLM for article generation).
+2. **ASR fallback** — when captions are disabled or unavailable, the script auto-downloads audio (yt-dlp → 16kHz WAV), tries Baidu ASR, then falls back to local faster-whisper.
    - Set `WHISPER_MODEL` env var to override model size (tiny/small/medium/large-v3).
    - CPU-only server: small model ~15-25 min for 30 min audio.
 
@@ -56,46 +70,92 @@ export FEISHU_RECEIVE_ID="oc_xxxxxxxx"        # chat_id of target group/user cha
 export FEISHU_RECEIVE_ID_TYPE="chat_id"       # open_id | user_id | union_id | email | chat_id
 ```
 
-Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The bot must be added to the target chat. See `references/feishu-setup.md` for the full app creation walkthrough.
+Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The bot must be added to the target chat. See `references/feishu-setup.md`.
 
 `SKILL_DIR` below = the directory containing this SKILL.md.
 
 ## Workflow
 
-1. **Fetch transcript.**
-   ```bash
-   uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps
-   ```
-   (No uv on the server: run with the venv python from Setup.) Done when: JSON with non-empty `full_text`. The fetch script defaults to `zh,en` and will retry without language restriction when needed. If still empty, tell the user transcripts are disabled and stop.
+**七步，顺序执行，不得跳步。** 步骤 6 是硬门禁。
 
-2. **Write the article.** Load `references/article-blueprint.md` and follow its module spec exactly. **Default output language is Chinese regardless of the video's language**; keep original English terms in parentheses on first appearance when useful. If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing. Done when: every blueprint module is present and every number in the article traces to the transcript (never invent figures).
+### 1. Fetch transcript
 
-3. **Save the file** to `SKILL_DIR/workspace/articles/<video_id>-<slug>.md` when this repo is local; otherwise use `~/youtube-digests/<video_id>-<slug>.md`. Keep transcripts under `SKILL_DIR/workspace/transcripts/` when available.
+```bash
+uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps
+```
 
-4. **ARCHIVE the transcript** — always save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<video_id>.json`. This is mandatory, even when the YouTube captions were used directly. Push both article + transcript to origin and github.
+(No uv on the server: use the venv python from Setup.) Done when: JSON with non-empty `full_text`. The script defaults to `zh,en` and retries without language restriction when needed. If still empty, tell the user transcripts are disabled and stop.
 
-5. **Send to Feishu if requested.**
-   ```bash
-   uv run python3 SKILL_DIR/scripts/send_feishu.py SKILL_DIR/workspace/articles/<file>.md --text "<一句话定位 + 文章字数>"
-   ```
-   Done when: script exits 0 and prints the message_id. If it exits 2 (missing config), report the env var setup to the user and deliver the local file path instead — do not fake success. If the user did not ask for Feishu, skip this step.
+### 2. ARCHIVE the transcript — mandatory, before writing anything
 
-5. **Report back** to the user: article path, Feishu delivery status if attempted, and the article's 30-second overview pasted inline.
+Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<video_id>.json`. This is mandatory even when YouTube captions were used directly. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
+
+### 3. Determine content type
+
+Load `references/content-types.md` and run its 4-step decision flow **in order, stopping at the first match**. The type determines which conditional modules are mandatory. Do not choose by feel; do not revisit the decision after writing.
+
+Record the result — it goes into the article's M01 line verbatim.
+
+### 4. Write the article
+
+Load `references/article-blueprint.md` and follow the module lock table exactly: fixed module set, fixed order, exact anchor words, per-module DoD minimums.
+
+- **Default output language is Chinese** regardless of the video's language; keep original English terms in parentheses on first appearance when useful.
+- If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing.
+- Save to `SKILL_DIR/workspace/articles/<video_id>-<slug>.md` when running inside this repo; otherwise `~/youtube-digests/<video_id>-<slug>.md`.
+
+### 5. Write the cards pack
+
+Load `references/cards-spec.md`. Save to `<same_dir>/<video_id>-<slug>-cards.md`.
+
+Hard constraints: no pipe tables (Feishu does not render them), no `<details>` (Feishu exposes the answers), ≤3500 CJK chars. The cards pack must be usable **without** the article open.
+
+### 6. Validate — HARD GATE
+
+```bash
+uv run python3 SKILL_DIR/scripts/validate_output.py <article.md> --cards <cards.md>
+```
+
+Done when: **exit 0**. On exit 1, fix every FAIL and re-run — do not rationalize, do not deliver partially, do not proceed to step 7. WARN items are advisory but should be reviewed.
+
+The script auto-detects content type from the article's M01 line; use `--type` only when debugging.
+
+### 7. Deliver
+
+**If the user asked for Feishu** — send both, cards as message body, article as attachment:
+
+```bash
+uv run python3 SKILL_DIR/scripts/send_feishu.py <article.md> --text-file <cards.md>
+```
+
+Done when: exit 0 and a message_id is printed. On exit 2 (missing config), report the env var setup and deliver local paths instead — do not fake success.
+
+**Always report back to the user**: article path, cards path, content type + triggered conditional modules, validation result (`63 PASS / 0 FAIL` style), Feishu status if attempted, and the 30-second overview pasted inline.
+
+Push article + cards + transcript to both remotes (origin/GitHub and gitee) when the user has asked for it.
 
 ## Common Pitfalls
 
-1. **Datacenter IP blocked by YouTube.** Cloud servers (阿里云/腾讯云/AWS) are frequently blocked: error mentions "blocking requests from your IP". Fixes: set `HTTPS_PROXY` to a residential/landing proxy; or fetch the transcript from an unblocked machine and `scp` it over; cookies alone rarely suffice. Never substitute a fabricated transcript.
-2. **Number conflicts inside the transcript** (e.g. 265亿 vs 290亿). Keep both, annotate their context — do not silently pick one.
+1. **Datacenter IP blocked by YouTube.** Cloud servers (阿里云/腾讯云/AWS) are frequently blocked: error mentions "blocking requests from your IP". Fixes: set `HTTPS_PROXY` to a residential proxy; or fetch the transcript on an unblocked machine and copy the JSON over. Never substitute a fabricated transcript.
+2. **Number conflicts inside the transcript** (e.g. 265亿 vs 290亿). Keep both, annotate their context — do not silently pick one. These pairs are prime material for the cards pack's 讲错风险清单.
 3. **Subtitle dumping.** The article must *restructure* (timeline / causality / comparison), not paste paragraphs of raw transcript. If a chapter reads like verbatim subtitles, rewrite it.
-4. **Feishu 99991663/99991672 errors** = wrong receive_id_type or bot not in chat. Verify `FEISHU_RECEIVE_ID_TYPE` matches the ID prefix (`oc_`=chat_id, `ou_`=open_id) and the bot has been added to the group.
-5. **Premature completion.** Sending the raw transcript or a flat summary to Feishu does not count. The deliverable is the full blueprint article.
+4. **Credibility qualifiers eroding in summaries.** The most common real-world drift: the body text says "按 XX 公司的说法…4 倍", but the 速览 / 概念卡片 / 要点清单 drop the qualifier and state it as fact. Those compressed positions are exactly what readers quote. Tag every one of them.
+5. **Feishu 99991663/99991672 errors** = wrong receive_id_type or bot not in chat. Verify `FEISHU_RECEIVE_ID_TYPE` matches the ID prefix (`oc_`=chat_id, `ou_`=open_id) and the bot has been added to the group.
+6. **Premature completion.** Sending the raw transcript, a flat summary, or the article alone does not count. The deliverable is: article + cards pack + validation exit 0.
+7. **Empty transcript archive.** Writing the JSON is not the same as verifying it. Check the byte size.
 
 ## Verification Checklist
 
-- [ ] Transcript JSON non-empty and language matches expectation
-- [ ] Article contains ALL blueprint modules (速览 / 知识地图 / 主体章节+Takeaway / 概念卡片 / 系统回顾 / 转述弹药库 / 延伸思考)
-- [ ] 转述弹药库 contains exactly the required three narrative versions: 30s / 3min / 10min
-- [ ] Output language is Chinese by default; original terms are retained only as needed
-- [ ] No invented numbers; conflicts annotated
-- [ ] File saved under `workspace/articles/` when running inside this local skill repo, otherwise under `~/youtube-digests/`
-- [ ] Feishu script exit 0 with message_id (or honest failure report + local path)
+机器可校验的部分由 `validate_output.py` 覆盖（步骤 6）。以下是**脚本查不到、必须人工确认**的项：
+
+- [ ] 主标题观点化，不是视频原标题的复述
+- [ ] 每章正文是重构叙事（时间线/因果/对比），不是字幕搬运
+- [ ] 章前设问是读者视角的真问题，不是章标题的同义重复
+- [ ] 自测题确实需要串联 ≥2 章才能回答（脚本只能数题目数量，判不了跨章）
+- [ ] 数字锚点的「来源强度」标注准确——厂商自述没被写成第三方数据
+- [ ] 字幕内的数字冲突已并列保留并标注语境
+- [ ] 多空对照两栏证据强度大致相当；若视频本身一边倒，已在 M16 指出
+- [ ] 卡片包能脱离主文独立使用，不是"详见第X章"式空壳
+- [ ] 转录稿已归档且**非空**
+
+脚本已自动覆盖：模块完整性 / 锚点词 / 可信度符号白名单 / 总账加总 / 速览与 Takeaway 标记率 / 来源强度列 / 自测题数与折叠 / 知识网络关系图 / 弹药库五子模块 / 立场证伪信号 / 条件模块触发正确性 / 篇幅 / 金融免责 / 卡片包飞书兼容性。
