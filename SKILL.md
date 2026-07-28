@@ -72,7 +72,9 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 
 3. **Save the file** to `SKILL_DIR/workspace/articles/<video_id>-<slug>.md` when this repo is local; otherwise use `~/youtube-digests/<video_id>-<slug>.md`. Keep transcripts under `SKILL_DIR/workspace/transcripts/` when available.
 
-4. **Send to Feishu if requested.**
+4. **ARCHIVE the transcript** — always save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<video_id>.json`. This is mandatory, even when the YouTube captions were used directly. Push both article + transcript to origin and github.
+
+5. **Send to Feishu if requested.**
    ```bash
    uv run python3 SKILL_DIR/scripts/send_feishu.py SKILL_DIR/workspace/articles/<file>.md --text "<一句话定位 + 文章字数>"
    ```
