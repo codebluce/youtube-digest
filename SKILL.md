@@ -51,15 +51,18 @@ The core value is not transcription — it is the article architecture defined i
 # Dependencies
 uv pip install youtube-transcript-api requests yt-dlp faster-whisper
 # PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests yt-dlp faster-whisper
-# ffmpeg is also required (for audio download): sudo apt install ffmpeg
+# ffmpeg is also required for audio download/normalization: install to PATH or use D:/tools/ffmpeg/bin on this Windows workstation
 ```
+
+Local ASR model cache policy: store faster-whisper models outside the skill repo, default `D:/models/huggingface` on this Windows workstation. Set `HF_HOME`, `HF_HUB_CACHE`, and `TRANSFORMERS_CACHE` before ASR so models do not occupy C drive.
 
 ## Transcript Strategy
 
 1. **YouTube captions first** — `fetch_transcript.py` tries YouTubeTranscriptApi with preferred languages.
-2. **ASR fallback** — when captions are disabled or unavailable, the script auto-downloads audio (yt-dlp → 16kHz WAV), tries Baidu ASR, then falls back to local faster-whisper.
-   - Set `WHISPER_MODEL` env var to override model size (tiny/small/medium/large-v3).
-   - CPU-only server: small model ~15-25 min for 30 min audio.
+2. **ASR fallback** — when captions are disabled/unavailable and the user approves audio processing, download audio with yt-dlp, normalize with ffmpeg, and transcribe locally with faster-whisper.
+   - Default local model: `medium`; default language: `zh`; default cache: `D:/models/huggingface`.
+   - CPU-only Windows workstation: medium model may take tens of minutes for a 30 min video.
+   - Mark article metadata as `文本来源：本地 ASR 转写`; do not pretend ASR is official subtitles.
 
 Feishu delivery requires an app (custom bot webhook cannot send files). Set env vars before use:
 
@@ -84,11 +87,25 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps
 ```
 
-(No uv on the server: use the venv python from Setup.) Done when: JSON with non-empty `full_text`. The script defaults to `zh,en` and retries without language restriction when needed. If still empty, tell the user transcripts are disabled and stop.
+(No uv on the server: use the venv python from Setup.) Done when: JSON with non-empty `full_text`. The script defaults to `zh,en` and retries without language restriction when needed.
+
+**If captions are unavailable and the user approves ASR fallback**, run:
+
+```bash
+# Download audio; add --proxy socks5://127.0.0.1:1080 when needed
+uv run python3 -m yt_dlp -f "bestaudio/best" --output "SKILL_DIR/workspace/audio/%(id)s.%(ext)s" "<URL>"
+
+# Optional but recommended: normalize audio when ffmpeg is available
+ffmpeg -y -i SKILL_DIR/workspace/audio/<video_id>.webm -ar 16000 -ac 1 -c:a pcm_s16le SKILL_DIR/workspace/audio/<video_id>.wav
+
+HF_HOME=D:/models/huggingface HF_HUB_CACHE=D:/models/huggingface/hub TRANSFORMERS_CACHE=D:/models/huggingface/transformers   uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<video_id>
+```
+
+ASR is done when `<video_id>.asr.json`, `<video_id>.full.txt`, and `<video_id>.timestamped.txt` exist. Use the ASR JSON as the transcript archive in step 2. If both captions and ASR fail, stop and report the gap; never fabricate transcript content.
 
 ### 2. ARCHIVE the transcript — mandatory, before writing anything
 
-Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<video_id>.json`. This is mandatory even when YouTube captions were used directly. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
+Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<video_id>.json` for official captions, or keep `SKILL_DIR/workspace/transcripts/<video_id>.asr.json` for ASR fallback. This is mandatory. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
 
 ### 3. Determine content type
 
@@ -125,19 +142,17 @@ The script auto-detects content type from the article's M01 line; use `--type` o
 **双推是默认动作，不需要用户开口要求。** 每次产出后自动执行：
 
 ```bash
-git add workspace/transcripts/<video_id>.json \
-        workspace/articles/<video_id>-<slug>.md \
-        workspace/articles/<video_id>-<slug>-cards.md
+git add workspace/transcripts/<video_id>.json         workspace/transcripts/<video_id>.asr.json         workspace/articles/<video_id>-<slug>.md         workspace/articles/<video_id>-<slug>-cards.md
 git commit -m "docs: <video_id> 深度文章 + 卡片包 + 字幕原稿"
-git push origin main && git push gitee main
+git push origin main && git push github main
 ```
 
-三件套一起推，缺一不可：**字幕原稿 JSON、主文、卡片包**。
+三件套一起推，缺一不可：**字幕原稿 JSON/ASR JSON、主文、卡片包**。
 
 Done when: 两个 remote 都返回成功。验证方式（不要只看 `git push` 的输出，本地 remote-tracking 引用可能是陈旧的）：
 
 ```bash
-git ls-remote origin main && git ls-remote gitee main   # 两者应与本地 HEAD 一致
+git ls-remote origin main && git ls-remote github main   # 两者应与本地 HEAD 一致
 ```
 
 只有在用户**明确说不要推**时才跳过。若某个 remote 推送失败（如凭据缺失），如实报告是哪个失败、失败原因，不得笼统说"已推送"。

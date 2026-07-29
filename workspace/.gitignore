@@ -1,10 +1,12 @@
 # 临时文件与中间产物不入库
 tmp/
 logs/
+audio/
 *.wav
 *.mp3
 *.m4a
 *.mp4
+*.webm
 *.part
 
 # 注意：articles/ 与 transcripts/ 是正式产出，必须入库。
