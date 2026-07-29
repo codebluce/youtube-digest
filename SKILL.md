@@ -14,7 +14,7 @@ metadata:
 
 ## Overview
 
-Pipeline: **YouTube URL → transcript → 内容分型 → 深度知识文章 + 速查卡片包 → 校验门禁 → 可选飞书双发**.
+Pipeline: **YouTube URL → transcript → 内容分型 → 深度知识文章 + 速查卡片包 → 校验门禁 → 双推远端 → 可选飞书双发**.
 
 The core value is not transcription — it is the article architecture defined in `references/article-blueprint.md`. The article is designed around how readers absorb, retain, and re-tell knowledge: structure-first navigation, chunked chapters, credibility tagging so the reader knows what is fact vs. the host's inference, closed-book self-testing (retrieval practice), and a talking-points arsenal with rebuttal preparation.
 
@@ -76,7 +76,7 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 
 ## Workflow
 
-**七步，顺序执行，不得跳步。** 步骤 6 是硬门禁。
+**八步，顺序执行，不得跳步。** 步骤 6 是硬门禁，步骤 7 双推是默认动作。
 
 ### 1. Fetch transcript
 
@@ -120,7 +120,29 @@ Done when: **exit 0**. On exit 1, fix every FAIL and re-run — do not rationali
 
 The script auto-detects content type from the article's M01 line; use `--type` only when debugging.
 
-### 7. Deliver
+### 7. Push to both remotes — DEFAULT, not opt-in
+
+**双推是默认动作，不需要用户开口要求。** 每次产出后自动执行：
+
+```bash
+git add workspace/transcripts/<video_id>.json \
+        workspace/articles/<video_id>-<slug>.md \
+        workspace/articles/<video_id>-<slug>-cards.md
+git commit -m "docs: <video_id> 深度文章 + 卡片包 + 字幕原稿"
+git push origin main && git push gitee main
+```
+
+三件套一起推，缺一不可：**字幕原稿 JSON、主文、卡片包**。
+
+Done when: 两个 remote 都返回成功。验证方式（不要只看 `git push` 的输出，本地 remote-tracking 引用可能是陈旧的）：
+
+```bash
+git ls-remote origin main && git ls-remote gitee main   # 两者应与本地 HEAD 一致
+```
+
+只有在用户**明确说不要推**时才跳过。若某个 remote 推送失败（如凭据缺失），如实报告是哪个失败、失败原因，不得笼统说"已推送"。
+
+### 8. Deliver
 
 **If the user asked for Feishu** — send both, cards as message body, article as attachment:
 
@@ -130,9 +152,7 @@ uv run python3 SKILL_DIR/scripts/send_feishu.py <article.md> --text-file <cards.
 
 Done when: exit 0 and a message_id is printed. On exit 2 (missing config), report the env var setup and deliver local paths instead — do not fake success.
 
-**Always report back to the user**: article path, cards path, content type + triggered conditional modules, validation result (`63 PASS / 0 FAIL` style), Feishu status if attempted, and the 30-second overview pasted inline.
-
-Push article + cards + transcript to both remotes (origin/GitHub and gitee) when the user has asked for it.
+**Always report back to the user**: article path, cards path, content type + triggered conditional modules, validation result (`63 PASS / 0 FAIL` style), push status per remote (`✅`/`❌` each), Feishu status if attempted, and the 30-second overview pasted inline.
 
 ## Common Pitfalls
 
