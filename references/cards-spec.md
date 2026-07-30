@@ -1,7 +1,7 @@
 # 卡片包规格（Cards Spec）v1.0
 
 > 卡片包是主文之外的**第二个必交产物**。只交主文 = 未完成。
-> 文件名：`<video_id>-<slug>-cards.md`，与主文同目录。
+> 文件名：`<日期>-<video_id>-<slug>-cards.md`（与主文同 stem，加 `-cards` 后缀），与主文同目录。命名规则见 `SKILL.md` 的 Naming Convention。
 
 ---
 

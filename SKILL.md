@@ -77,6 +77,33 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 
 `SKILL_DIR` below = the directory containing this SKILL.md.
 
+## Naming Convention
+
+**格式**：`<YYYY-MM-DD>-<video_id>-<slug>[.suffix]`
+
+```
+日期    取文章 M00「整理日期」的值，不是文件系统 mtime。放最前面是为了
+        让 ls 按时间自然排序——video_id 是随机字符串，排序毫无意义。
+video_id  保留，用于溯源与去重，但不再是文件名里唯一可读的部分。
+slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题，不是来源标签。
+        禁止：中文概念的拼音缩写（如"大摩"写成 damo、"军备"写成 junbei）；
+        冗余后缀（如 -digest——本 skill 产出的都是 digest，加了等于没加）。
+        人名/公司全名的拼音或英文是允许的（如 sk-hynix、fu-peng），
+        问题只在缩写和语义中断，不在"是不是中文来源"。
+```
+
+**示例**：
+
+```
+2026-07-29-fKoWrF49Qo8-trump-wealth-playbook.md
+2026-07-29-fKoWrF49Qo8-trump-wealth-playbook-cards.md
+2026-07-29-fKoWrF49Qo8.json                            (transcript)
+```
+
+三类产出统一套用此格式：主文、卡片包（加 `-cards` 后缀）、transcript 归档。ASR fallback 产出的 `.asr.json` / `.full.txt` / `.timestamped.txt` 后缀不变，同样加日期前缀。
+
+`validate_output.py` 的卡片自动配对基于文件名 stem（去掉 `.md` 后加 `-cards.md`），不依赖具体格式，改名不影响校验。
+
 ## Workflow
 
 **八步，顺序执行，不得跳步。** 步骤 6 是硬门禁，步骤 7 双推是默认动作。
@@ -98,14 +125,16 @@ uv run python3 -m yt_dlp -f "bestaudio/best" --output "SKILL_DIR/workspace/audio
 # Optional but recommended: normalize audio when ffmpeg is available
 ffmpeg -y -i SKILL_DIR/workspace/audio/<video_id>.webm -ar 16000 -ac 1 -c:a pcm_s16le SKILL_DIR/workspace/audio/<video_id>.wav
 
-HF_HOME=D:/models/huggingface HF_HUB_CACHE=D:/models/huggingface/hub TRANSFORMERS_CACHE=D:/models/huggingface/transformers   uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<video_id>
+HF_HOME=D:/models/huggingface HF_HUB_CACHE=D:/models/huggingface/hub TRANSFORMERS_CACHE=D:/models/huggingface/transformers uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<video_id>
 ```
 
-ASR is done when `<video_id>.asr.json`, `<video_id>.full.txt`, and `<video_id>.timestamped.txt` exist. Use the ASR JSON as the transcript archive in step 2. If both captions and ASR fail, stop and report the gap; never fabricate transcript content.
+(`<video_id>.wav` under `workspace/audio/` is a gitignored temp file — no date prefix needed there. The `--output-prefix` target under `workspace/transcripts/` is the permanent archive, so it takes the full `<date>-<video_id>` per the Naming Convention above.)
+
+ASR is done when `<date>-<video_id>.asr.json`, `<date>-<video_id>.full.txt`, and `<date>-<video_id>.timestamped.txt` exist (see Naming Convention above for `<date>`). Use the ASR JSON as the transcript archive in step 2. If both captions and ASR fail, stop and report the gap; never fabricate transcript content.
 
 ### 2. ARCHIVE the transcript — mandatory, before writing anything
 
-Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<video_id>.json` for official captions, or keep `SKILL_DIR/workspace/transcripts/<video_id>.asr.json` for ASR fallback. This is mandatory. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
+Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<date>-<video_id>.json` for official captions, or keep `SKILL_DIR/workspace/transcripts/<date>-<video_id>.asr.json` for ASR fallback. This is mandatory. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
 
 ### 3. Determine content type
 
@@ -119,11 +148,11 @@ Load `references/article-blueprint.md` and follow the module lock table exactly:
 
 - **Default output language is Chinese** regardless of the video's language; keep original English terms in parentheses on first appearance when useful.
 - If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing.
-- Save to `SKILL_DIR/workspace/articles/<video_id>-<slug>.md` when running inside this repo; otherwise `~/youtube-digests/<video_id>-<slug>.md`.
+- Save to `SKILL_DIR/workspace/articles/<date>-<video_id>-<slug>.md` when running inside this repo; otherwise `~/youtube-digests/<date>-<video_id>-<slug>.md`.
 
 ### 5. Write the cards pack
 
-Load `references/cards-spec.md`. Save to `<same_dir>/<video_id>-<slug>-cards.md`.
+Load `references/cards-spec.md`. Save to `<same_dir>/<date>-<video_id>-<slug>-cards.md`.
 
 Hard constraints: no pipe tables (Feishu does not render them), no `<details>` (Feishu exposes the answers), ≤3500 CJK chars. The cards pack must be usable **without** the article open.
 
@@ -142,12 +171,17 @@ The script auto-detects content type from the article's M01 line; use `--type` o
 **双推是默认动作，不需要用户开口要求。** 每次产出后自动执行：
 
 ```bash
-git add workspace/transcripts/<video_id>.json         workspace/transcripts/<video_id>.asr.json         workspace/articles/<video_id>-<slug>.md         workspace/articles/<video_id>-<slug>-cards.md
+git add workspace/transcripts/<date>-<video_id>.json \
+        workspace/transcripts/<date>-<video_id>.asr.json \
+        workspace/articles/<date>-<video_id>-<slug>.md \
+        workspace/articles/<date>-<video_id>-<slug>-cards.md
 git commit -m "docs: <video_id> 深度文章 + 卡片包 + 字幕原稿"
-git push origin main && git push github main
+git push origin main && git push gitee main
 ```
 
 三件套一起推，缺一不可：**字幕原稿 JSON/ASR JSON、主文、卡片包**。
+
+> ⚠️ Remote 名称固定为 `origin`（GitHub）与 `gitee`（Gitee）——用 `git remote -v` 核实，不要凭记忆或凭空写一个 remote 名。此前一次并行编辑把这里错写成了 `git push github main`，而仓库里根本没有叫 `github` 的 remote，照抄会直接推送失败。
 
 Done when: 两个 remote 都返回成功。验证方式（不要只看 `git push` 的输出，本地 remote-tracking 引用可能是陈旧的）：
 

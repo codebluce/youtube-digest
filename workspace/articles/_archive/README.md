@@ -16,15 +16,15 @@
 
 ## 同一视频的合规产出
 
-`nilNLfW7izg`（SK海力士）的当前合规版本：
+`nilNLfW7izg`（SK海力士）的当前合规版本（文件名已按 Naming Convention 加日期前缀，详见 `SKILL.md`）：
 
 ```
-../nilNLfW7izg-sk-hynix-hbm.md         主文（63 PASS / 0 FAIL）
-../nilNLfW7izg-sk-hynix-hbm-cards.md   卡片包
+../2026-07-28-nilNLfW7izg-sk-hynix-hbm.md         主文（70 PASS / 0 FAIL）
+../2026-07-28-nilNLfW7izg-sk-hynix-hbm-cards.md   卡片包
 ```
 
 验证方式：
 
 ```bash
-python3 scripts/validate_output.py workspace/articles/nilNLfW7izg-sk-hynix-hbm.md
+python3 scripts/validate_output.py workspace/articles/2026-07-28-nilNLfW7izg-sk-hynix-hbm.md
 ```
