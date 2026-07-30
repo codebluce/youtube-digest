@@ -72,6 +72,7 @@ FINANCIAL_TYPES = {"公司行业研究型", "宏观策略型"}
 # 卡片包锚点词 → (卡号, 是否条件卡)
 CARD_ANCHORS: list[tuple[str, str, bool]] = [
     ("头部", "一句话定位", False),
+    ("头部", "主干流程", False),
     ("卡1", "必记数字", False),
     ("卡2", "概念速查", False),
     ("卡3", "30 秒讲稿", False),
@@ -223,6 +224,31 @@ def check_article(text: str, ctype: str, rep: Report) -> None:
         )
     else:
         rep.check(False, "[M05] 速览可解析", "未能定位 30 秒速览段落")
+
+    # 4b. 知识地图三段式（M06）
+    map_block = extract_section(text, "知识地图")
+    if map_block:
+        rep.check("主线" in map_block, "[M06] 含一句话主线", "知识地图缺少主线段")
+        rep.check("主干流程" in map_block, "[M06] 含主干流程", "缺少章与章之间的推进骨架")
+        rep.check(
+            "```" in map_block,
+            "[M06] 用等宽块承载",
+            "知识地图必须用代码块，不得用 Markdown 表格",
+        )
+        marks = {m: map_block.count(f"{m}│") for m in ("问", "答", "据", "结")}
+        rep.check(
+            marks["问"] >= 3 and marks["结"] >= 3,
+            "[M06] 分章四要素齐全（问/结）",
+            f"问={marks['问']} 结={marks['结']}，每章至少需要这两行",
+        )
+        rep.check(
+            marks["答"] >= 3 and marks["据"] >= 3,
+            "[M06] ★主干章节含完整四要素（答/据）",
+            f"答={marks['答']} 据={marks['据']}，至少 3 个主干章节需要完整四行",
+        )
+        rep.check("★" in map_block, "[M06] 标注主干章节", "未用 ★ 区分主干与支线章节")
+    else:
+        rep.check(False, "[M06] 知识地图可解析", "未能定位知识地图段落")
 
     # 5. Takeaway 数量与标记
     takeaway_blocks = re.findall(r"📌 Takeaway(.*?)(?=\n##\s|\n---)", text, re.DOTALL)
