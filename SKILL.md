@@ -51,17 +51,31 @@ The core value is not transcription — it is the article architecture defined i
 # Dependencies
 uv pip install youtube-transcript-api requests yt-dlp faster-whisper
 # PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests yt-dlp faster-whisper
-# ffmpeg is also required for audio download/normalization: install to PATH or use D:/tools/ffmpeg/bin on this Windows workstation
+# ffmpeg is also required for audio download/normalization — install via the platform's
+# own package manager and ensure it's on PATH:
+#   macOS:   brew install ffmpeg
+#   Linux:   sudo apt install ffmpeg
+#   Windows: install ffmpeg and add its bin/ directory to PATH
 ```
 
-Local ASR model cache policy: store faster-whisper models outside the skill repo, default `D:/models/huggingface` on this Windows workstation. Set `HF_HOME`, `HF_HUB_CACHE`, and `TRANSFORMERS_CACHE` before ASR so models do not occupy C drive.
+**Local ASR model cache policy — platform-agnostic, no hardcoded paths.** faster-whisper models must be cached outside the skill repo, in a directory the executing machine chooses for itself:
+
+```bash
+# Set once per machine, in the shell profile — never hardcode a path in this SKILL.md,
+# and never commit a machine-specific path here. Pick any writable location; the goal
+# is just "outside the repo" and, on constrained systems, "off the system/OS drive".
+export HF_HOME="$HOME/.cache/huggingface"          # macOS/Linux example
+# PowerShell equivalent:  $env:HF_HOME = "D:\models\huggingface"   (any writable drive)
+export HF_HUB_CACHE="$HF_HOME/hub"
+export TRANSFORMERS_CACHE="$HF_HOME/transformers"
+```
 
 ## Transcript Strategy
 
 1. **YouTube captions first** — `fetch_transcript.py` tries YouTubeTranscriptApi with preferred languages.
 2. **ASR fallback** — when captions are disabled/unavailable and the user approves audio processing, download audio with yt-dlp, normalize with ffmpeg, and transcribe locally with faster-whisper.
-   - Default local model: `medium`; default language: `zh`; default cache: `D:/models/huggingface`.
-   - CPU-only Windows workstation: medium model may take tens of minutes for a 30 min video.
+   - Default local model: `medium`; default language: `zh`; cache directory: whatever `HF_HOME` resolves to on the executing machine (see Setup above — never hardcode a drive letter or path here).
+   - CPU-only machine: the `medium` model may take tens of minutes for a 30-minute video, regardless of OS.
    - Mark article metadata as `文本来源：本地 ASR 转写`; do not pretend ASR is official subtitles.
 
 Feishu delivery requires an app (custom bot webhook cannot send files). Set env vars before use:
@@ -125,7 +139,9 @@ uv run python3 -m yt_dlp -f "bestaudio/best" --output "SKILL_DIR/workspace/audio
 # Optional but recommended: normalize audio when ffmpeg is available
 ffmpeg -y -i SKILL_DIR/workspace/audio/<video_id>.webm -ar 16000 -ac 1 -c:a pcm_s16le SKILL_DIR/workspace/audio/<video_id>.wav
 
-HF_HOME=D:/models/huggingface HF_HUB_CACHE=D:/models/huggingface/hub TRANSFORMERS_CACHE=D:/models/huggingface/transformers uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<video_id>
+# HF_HOME / HF_HUB_CACHE / TRANSFORMERS_CACHE should already be exported in this
+# shell per the Setup section above — do not inline a hardcoded path here.
+uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<video_id>
 ```
 
 (`<video_id>.wav` under `workspace/audio/` is a gitignored temp file — no date prefix needed there. The `--output-prefix` target under `workspace/transcripts/` is the permanent archive, so it takes the full `<date>-<video_id>` per the Naming Convention above.)

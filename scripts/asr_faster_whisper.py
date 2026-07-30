@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Transcribe local audio/video with faster-whisper.
 
-Default model: medium. Default language: zh. Default cache: D:/models/huggingface.
+Default model: medium. Default language: zh.
+
+Cache directory resolution (platform-agnostic, no hardcoded drive/path):
+    1. --cache-dir if explicitly passed
+    2. existing HF_HOME env var if already exported (see SKILL.md Setup)
+    3. ~/.cache/huggingface as a last-resort cross-platform default
 
 Usage:
     python scripts/asr_faster_whisper.py workspace/audio/video.webm \
       --model medium --language zh --output-prefix workspace/transcripts/video
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -23,13 +30,21 @@ def format_ts(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
-def set_hf_cache(cache_dir: str) -> None:
-    cache = Path(cache_dir)
-    os.environ.setdefault("HF_HOME", str(cache))
-    os.environ.setdefault("HF_HUB_CACHE", str(cache / "hub"))
-    os.environ.setdefault("TRANSFORMERS_CACHE", str(cache / "transformers"))
-    (cache / "hub").mkdir(parents=True, exist_ok=True)
-    (cache / "transformers").mkdir(parents=True, exist_ok=True)
+def resolve_cache_dir(cache_dir_arg: str | None) -> Path:
+    """Never hardcode a machine-specific path — see module docstring for the order."""
+    if cache_dir_arg:
+        return Path(cache_dir_arg)
+    if os.environ.get("HF_HOME"):
+        return Path(os.environ["HF_HOME"])
+    return Path.home() / ".cache" / "huggingface"
+
+
+def set_hf_cache(cache_dir: Path) -> None:
+    os.environ.setdefault("HF_HOME", str(cache_dir))
+    os.environ.setdefault("HF_HUB_CACHE", str(cache_dir / "hub"))
+    os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_dir / "transformers"))
+    (cache_dir / "hub").mkdir(parents=True, exist_ok=True)
+    (cache_dir / "transformers").mkdir(parents=True, exist_ok=True)
 
 
 def main() -> None:
@@ -39,7 +54,11 @@ def main() -> None:
     parser.add_argument("--language", default="zh", help="language code, default: zh")
     parser.add_argument("--device", default="cpu", help="cpu or cuda, default: cpu")
     parser.add_argument("--compute-type", default="int8", help="default: int8 for CPU")
-    parser.add_argument("--cache-dir", default="D:/models/huggingface", help="HF cache dir")
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="HF cache dir; defaults to $HF_HOME if set, else ~/.cache/huggingface",
+    )
     parser.add_argument("--output-prefix", default=None, help="output file prefix without suffix")
     parser.add_argument("--beam-size", type=int, default=5)
     parser.add_argument("--vad", action="store_true", default=True, help="enable VAD filter")
@@ -50,7 +69,8 @@ def main() -> None:
     if not input_path.exists():
         raise SystemExit(f"input file not found: {input_path}")
 
-    set_hf_cache(args.cache_dir)
+    cache_dir = resolve_cache_dir(args.cache_dir)
+    set_hf_cache(cache_dir)
 
     from faster_whisper import WhisperModel
 
@@ -58,7 +78,7 @@ def main() -> None:
         args.model,
         device=args.device,
         compute_type=args.compute_type,
-        download_root=args.cache_dir,
+        download_root=str(cache_dir),
     )
     out_prefix = Path(args.output_prefix) if args.output_prefix else input_path.with_suffix("")
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
