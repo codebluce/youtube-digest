@@ -127,8 +127,11 @@ def main():
             fail(f"cannot read text file: {exc}", code=2)
         # Feishu rejects oversized text payloads; the cards pack is capped at
         # 3500 CJK chars by cards-spec, so this only guards against misuse.
-        if len(body_text) > 20000:
-            fail("text body exceeds 20000 chars — send it as a file instead", code=2)
+        # Feishu's limit is on bytes (~150KB); CJK chars are 3 bytes in UTF-8,
+        # so guard on encoded length, not codepoint count.
+        body_bytes = len(body_text.encode("utf-8"))
+        if body_bytes > 60000:
+            fail(f"text body is {body_bytes} bytes (limit 60000) — send it as a file instead", code=2)
 
     token = get_token(app_id, app_secret)
 

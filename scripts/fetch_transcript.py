@@ -3,9 +3,14 @@
 Fetch a YouTube video transcript and output it as structured JSON.
 
 Usage:
-    uv run python3 fetch_transcript.py <url_or_video_id> [--language zh,en] [--timestamps]
+    uv run python3 fetch_transcript.py <url_or_video_id> [--language zh,en] [--timestamps] [--output PATH]
 
-Default language preference is Chinese first, then English. If the preferred language fetch fails, the script retries once without language restriction.
+Default language preference is Chinese first, then English. If the preferred
+language fetch fails, the script retries once without language restriction.
+
+This script ONLY fetches YouTube captions. It never downloads audio and never
+falls back to ASR — when captions are unavailable it prints an error JSON to
+stdout and exits 1, leaving the ASR decision to the agent (see SKILL.md step 1).
 
 Output (JSON):
     {
@@ -21,9 +26,9 @@ Install dependency:  uv pip install youtube-transcript-api
 
 import argparse
 import json
-import os
 import re
 import sys
+from pathlib import Path
 
 
 def extract_video_id(url_or_id: str) -> str:
@@ -76,15 +81,25 @@ def fetch_transcript(video_id: str, languages: list = None):
     ]
 
 
+def fail(payload: dict) -> None:
+    """Print an error JSON to stdout and exit 1 (agent parses stdout)."""
+    print(json.dumps(payload, ensure_ascii=False))
+    sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch YouTube transcript as JSON")
-    parser.add_argument("url", help="YouTube URL or video ID")
+    parser.add_argument("url", help="YouTube URL or 11-char video ID")
     parser.add_argument("--language", "-l", default="zh,en",
                         help="Comma-separated language codes (e.g. zh,en). Default: zh,en")
     parser.add_argument("--timestamps", "-t", action="store_true",
                         help="Include timestamped text in output")
     parser.add_argument("--text-only", action="store_true",
                         help="Output plain text instead of JSON")
+    parser.add_argument("--output", "-o", default=None,
+                        help="Write the JSON archive to this path instead of stdout "
+                             "(parent directories are created; the file is verified "
+                             "non-empty after writing)")
     args = parser.parse_args()
 
     video_id = extract_video_id(args.url)
@@ -102,74 +117,32 @@ def main():
         except Exception as e:
             error_msg = str(e)
             first_error_msg = str(first_error)
-            if "blocking requests from your ip" in error_msg.lower() or "blocking requests from your ip" in first_error_msg.lower():
-                print(json.dumps({"error": "YouTube is blocking this server's IP. Use HTTPS_PROXY or fetch from another machine. See SKILL.md pitfall #1."}, ensure_ascii=False))
-                sys.exit(1)
-            # ── ASR Fallback (Baidu → local) ──
-            fallback_ok = (
-                "disabled" in error_msg.lower() or "disabled" in first_error_msg.lower() or
-                "no transcript" in error_msg.lower() or "no transcript" in first_error_msg.lower()
-            )
-            if fallback_ok:
-                print(f"YouTube transcript unavailable — falling back to ASR...", file=sys.stderr)
-                try:
-                    import subprocess as _sp
-                    script_dir = os.path.dirname(os.path.abspath(__file__))
-                    dl_script = os.path.join(script_dir, "download_audio.py")
-                    audio_path = f"/tmp/yt_{video_id}.wav"
-                    _sp.run([sys.executable, dl_script, args.url, "--output", audio_path],
-                            check=True, timeout=300, capture_output=True)
-
-                    # Try Baidu ASR first (fast, accurate Chinese)
-                    baidu_env = os.environ.copy()
-                    dotenv_path = os.path.join(os.path.dirname(script_dir), ".env")
-                    if os.path.exists(dotenv_path):
-                        baidu_env.update({k: v for line in open(dotenv_path) if "=" in line
-                                         for k, v in [line.strip().split("=", 1)]})
-                    baidu_script = os.path.join(script_dir, "transcribe_baidu.py")
-                    baidu_result = _sp.run([sys.executable, baidu_script, audio_path],
-                                           env=baidu_env, timeout=300,
-                                           capture_output=True, text=True)
-                    if baidu_result.returncode == 0:
-                        baidu_json = json.loads(baidu_result.stdout)
-                        if baidu_json.get("full_text"):
-                            merged = {
-                                "video_id": video_id,
-                                "language": languages[0] if languages else "zh",
-                                "source": "baidu-asr",
-                                "full_text": baidu_json["full_text"],
-                                "char_count": baidu_json.get("char_count", 0)
-                            }
-                            print(json.dumps(merged, ensure_ascii=False, indent=2))
-                            try: os.unlink(audio_path)
-                            except: pass
-                            return
-
-                    # Fallback to local faster-whisper
-                    asr_script = os.path.join(script_dir, "transcribe_audio.py")
-                    lang = languages[0] if languages else "zh"
-                    model = os.environ.get("WHISPER_MODEL", "small")
-                    result = _sp.run([sys.executable, asr_script, audio_path,
-                                     "--language", lang, "--model", model],
-                                    check=True, timeout=600, capture_output=True, text=True)
-                    try: os.unlink(audio_path)
-                    except: pass
-                    print(result.stdout.strip())
-                    return
-                except Exception as asr_err:
-                    print(json.dumps({"error": f"ASR fallback also failed: {asr_err}", "yt_error": error_msg}, ensure_ascii=False))
-                    sys.exit(1)
-            else:
-                print(json.dumps({"error": error_msg, "first_error": first_error_msg}, ensure_ascii=False))
-                sys.exit(1)
+            combined = (error_msg + " " + first_error_msg).lower()
+            if "blocking requests from your ip" in combined:
+                fail({"error": "YouTube is blocking this server's IP. Use HTTPS_PROXY or fetch from another machine. See SKILL.md pitfall #1.",
+                      "captions_unavailable": False})
+            captions_gone = ("disabled" in combined) or ("no transcript" in combined)
+            fail({"error": error_msg,
+                  "first_error": first_error_msg,
+                  "captions_unavailable": captions_gone,
+                  "hint": "captions_unavailable=true means the ASR fallback path (SKILL.md step 1) is applicable — ask the user before running it."})
 
     full_text = " ".join(seg["text"] for seg in segments)
     timestamped = "\n".join(
         f"{format_timestamp(seg['start'])} {seg['text']}" for seg in segments
     )
 
+    if not full_text.strip():
+        fail({"error": "transcript fetched but full_text is empty",
+              "video_id": video_id,
+              "captions_unavailable": True})
+
     if args.text_only:
-        print(timestamped if args.timestamps else full_text)
+        out = timestamped if args.timestamps else full_text
+        if args.output:
+            _write_verified(Path(args.output), out)
+        else:
+            print(out)
         return
 
     result = {
@@ -182,7 +155,24 @@ def main():
     if args.timestamps:
         result["timestamped_text"] = timestamped
 
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    payload = json.dumps(result, ensure_ascii=False, indent=2)
+    if args.output:
+        _write_verified(Path(args.output), payload)
+        # Also echo to stdout so the agent sees the content without re-reading.
+        print(payload)
+    else:
+        print(payload)
+
+
+def _write_verified(path: Path, content: str) -> None:
+    """Write file and verify it landed non-empty (SKILL.md pitfall #7)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    size = path.stat().st_size
+    if size == 0:
+        print(f"Error: wrote 0-byte file — {path}", file=sys.stderr)
+        sys.exit(1)
+    print(f"[fetch_transcript] archived {size} bytes -> {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -69,19 +69,21 @@ TYPE_TRIGGERS: dict[str, set[str]] = {
 # 金融属性类型：适用额外硬约束
 FINANCIAL_TYPES = {"公司行业研究型", "宏观策略型"}
 
-# 卡片包锚点词 → (卡号, 是否条件卡)
-CARD_ANCHORS: list[tuple[str, str, bool]] = [
-    ("头部", "一句话定位", False),
-    ("头部", "主干流程", False),
-    ("卡1", "必记数字", False),
-    ("卡2", "概念速查", False),
-    ("卡3", "30 秒讲稿", False),
-    ("卡4", "场景变体", False),
-    ("卡5", "追问攻防", False),
-    ("卡6", "讲错风险", False),
-    ("卡7", "自测", False),
-    ("卡8", "立场", False),
-    ("卡9", "跟踪表", True),
+# 卡片包锚点词 → (卡号, 触发它的主文条件模块；None = 必选卡)
+# 与 cards-spec.md 第 1 章一致：卡 9 跟随 M13，尾部 UP主立场卡跟随 M16。
+CARD_ANCHORS: list[tuple[str, str, str | None]] = [
+    ("头部", "一句话定位", None),
+    ("头部", "主干流程", None),
+    ("卡1", "必记数字", None),
+    ("卡2", "概念速查", None),
+    ("卡3", "30 秒讲稿", None),
+    ("卡4", "场景变体", None),
+    ("卡5", "追问攻防", None),
+    ("卡6", "讲错风险", None),
+    ("卡7", "自测", None),
+    ("卡8", "立场", None),
+    ("卡9", "跟踪表", "M13"),
+    ("尾部", "UP主立场", "M16"),
 ]
 
 ARTICLE_MIN_CHARS = 8000
@@ -168,12 +170,74 @@ def detect_type(text: str) -> str | None:
     return None
 
 
+# M01 附加清单中允许出现的措辞 → 对应的条件模块 ID
+_M01_CLAIM_ALIASES: dict[str, str] = {
+    "失效条件": "M03",
+    "多空对照": "M11",
+    "跟踪清单": "M13",
+    "UP主立场": "M16",
+    "UP 主立场": "M16",
+    "立场与利益相关": "M16",
+}
+# 必选模块名 —— 出现在 M01 附加清单里即为漂移（它们不是条件触发的）
+_M01_MANDATORY_NAMES = ["立场脚手架", "知识地图", "知识网络", "闭卷自测", "转述弹药库", "系统性回顾", "延伸思考", "30 秒速览"]
+
+
+def check_m01_claims(text: str, ctype: str, rep: Report) -> None:
+    """校验 M01 行「因此附加了 …」清单与 TYPE_TRIGGERS 一致（H4）。"""
+    # M01 内容可能在「内容类型」标题行内，也可能在下一行——取足够窗口再截到句号
+    m01 = re.search(r"内容类型[\s\S]{0,400}", text)
+    if not m01:
+        return  # detect_type 已报过错
+    window = m01.group(0)
+    # 截取「附加了…」到本句结束（句号/换行/行尾）
+    claim_match = re.search(r"附加了(.+?)(?:[。.！!]|\n|$)", window)
+    expected = TYPE_TRIGGERS[ctype]
+
+    if not expected:
+        # 无条件模块的类型（知识科普型/事件复盘型）不应写"附加了 X 个条件模块"
+        if claim_match:
+            rep.check(
+                False,
+                "[M01] 无条件模块类型的附加清单为空",
+                f"{ctype} 不触发任何条件模块，M01 行却写了「附加了{claim_match.group(1)}模块」",
+                fatal=False,
+            )
+        else:
+            rep.ok("[M01] 无条件模块类型的附加清单为空")
+        return
+
+    if not claim_match:
+        rep.check(False, "[M01] 附加清单存在", f"{ctype} 触发了 {'/'.join(sorted(expected))}，但 M01 行未写「因此附加了 …」")
+        return
+
+    claim_text = claim_match.group(1)
+    # 去掉"四个模块"等收尾量词，避免影响别名匹配（别名不含这些字，但保险起见）
+    claim_text = re.sub(r"(?:四|三|两|二|一|\d+)\s*个?模块\s*$", "", claim_text)
+    claimed = {mid for alias, mid in _M01_CLAIM_ALIASES.items() if alias in claim_text}
+    rep.check(
+        claimed == expected,
+        "[M01] 附加清单与分型一致",
+        f"清单解析出 {sorted(claimed) or '空'}，{ctype} 应为 {sorted(expected)}",
+    )
+
+    leaked = [name for name in _M01_MANDATORY_NAMES if name in claim_text]
+    rep.check(
+        not leaked,
+        "[M01] 附加清单不含必选模块",
+        f"必选模块被误写进条件清单：{', '.join(leaked)}",
+    )
+
+
 # ── 主文校验 ────────────────────────────────────────────────────────────
 
 
 def check_article(text: str, ctype: str, rep: Report) -> None:
     body = strip_code_blocks(text)
     expected = TYPE_TRIGGERS[ctype]
+
+    # 0. M01 附加清单与分型一致（H4）
+    check_m01_claims(text, ctype, rep)
 
     # 1. 模块存在性（必选 + 条件触发）
     for mid, anchor, conditional in ARTICLE_ANCHORS:
@@ -342,15 +406,19 @@ def check_article(text: str, ctype: str, rep: Report) -> None:
 def check_cards(text: str, ctype: str, rep: Report) -> None:
     expected = TYPE_TRIGGERS[ctype]
 
-    for cid, anchor, conditional in CARD_ANCHORS:
+    for cid, anchor, trigger in CARD_ANCHORS:
         present = anchor in text
-        if conditional and "M13" not in expected:
-            rep.check(
-                not present,
-                f"[卡片/{cid}] {anchor} 不应出现",
-                f"{ctype} 未触发跟踪类模块",
-                fatal=False,
-            )
+        if trigger is not None:
+            # 条件卡：由 trigger 指定的主文条件模块决定是否应出现
+            if trigger not in expected:
+                rep.check(
+                    not present,
+                    f"[卡片/{cid}] {anchor} 不应出现",
+                    f"{ctype} 未触发 {trigger}，产出了对应条件卡即为漂移",
+                    fatal=False,
+                )
+                continue
+            rep.check(present, f"[卡片/{cid}] {anchor}", f"{ctype} 触发了 {trigger}，但缺少对应条件卡「{anchor}」")
             continue
         rep.check(present, f"[卡片/{cid}] {anchor}", f"缺失卡片，锚点词「{anchor}」未出现")
 

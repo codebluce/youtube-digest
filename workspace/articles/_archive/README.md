@@ -13,6 +13,7 @@
 |---|---|---|
 | `_sample-blueprint-v2.md` | 蓝图改造方案的格式演示样本 | **所有数字均为占位虚构**，非真实视频内容；且模块集合对应已废弃的中间设计 |
 | `nilNLfW7izg-sk-hynix-hbm-v2.md` | SK海力士 P0-only 版本 | 真实内容，但缺 P1 模块（知识网络 / 多空对照 / 立场脚手架 / 跟踪清单 / UP主立场），跑校验会 FAIL |
+| `2026-07-28-rDkMK20YHIk-morgan-stanley-macro-outlook-v1-noncompliant.md` | 大摩闭门会 v1（蓝图 v2 锁定前的旧格式） | 缺 M01 内容类型行，validator 无法识别类型；且无 `-cards.md` 卡片包配对，双产物缺一。transcript 仍在 `workspace/transcripts/2026-07-28-rDkMK20YHIk.json`，可按 v2.0 蓝图重制 |
 
 ## 同一视频的合规产出
 

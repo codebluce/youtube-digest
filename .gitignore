@@ -1,0 +1,19 @@
+# 环境与密钥 —— 任何情况下都不得入库
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 注意：workspace/ 的忽略规则由 workspace/.gitignore 自行管理。
+# workspace/articles/ 与 workspace/transcripts/ 是正式产出，必须入库，
+# 不要在此添加 workspace/ 全目录忽略。

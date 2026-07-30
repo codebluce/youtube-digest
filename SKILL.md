@@ -58,6 +58,8 @@ uv pip install youtube-transcript-api requests yt-dlp faster-whisper
 #   Windows: install ffmpeg and add its bin/ directory to PATH
 ```
 
+**Env vars** — copy `.env.example` to `.env` and fill in real values. `.env` is gitignored; never commit it. Feishu vars are only needed for step 8; HF_HOME is only needed when running the ASR fallback.
+
 **Local ASR model cache policy — platform-agnostic, no hardcoded paths.** faster-whisper models must be cached outside the skill repo, in a directory the executing machine chooses for itself:
 
 ```bash
@@ -125,10 +127,11 @@ slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题�
 ### 1. Fetch transcript
 
 ```bash
-uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps
+uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps \
+  --output SKILL_DIR/workspace/transcripts/<date>-<video_id>.json
 ```
 
-(No uv on the server: use the venv python from Setup.) Done when: JSON with non-empty `full_text`. The script defaults to `zh,en` and retries without language restriction when needed.
+(No uv on the server: use the venv python from Setup.) Done when: JSON with non-empty `full_text`. The script defaults to `zh,en` and retries without language restriction when needed. On failure it prints an error JSON to stdout and exits 1 — it never falls back to ASR by itself.
 
 **If captions are unavailable and the user approves ASR fallback**, run:
 
@@ -184,20 +187,29 @@ The script auto-detects content type from the article's M01 line; use `--type` o
 
 ### 7. Push to both remotes — DEFAULT, not opt-in
 
-**双推是默认动作，不需要用户开口要求。** 每次产出后自动执行：
+**双推是默认动作，不需要用户开口要求。** 推送前先跑一次全仓审计，确保历史产出没有被后续编辑破坏：
+
+```bash
+uv run python3 SKILL_DIR/scripts/audit_workspace.py   # 必须 exit 0 才允许推送
+```
+
+然后执行：
 
 ```bash
 git add workspace/transcripts/<date>-<video_id>.json \
-        workspace/transcripts/<date>-<video_id>.asr.json \
         workspace/articles/<date>-<video_id>-<slug>.md \
         workspace/articles/<date>-<video_id>-<slug>-cards.md
+# ASR fallback 的归档文件（存在才加）：
+#   workspace/transcripts/<date>-<video_id>.asr.json
+#   workspace/transcripts/<date>-<video_id>.full.txt
+#   workspace/transcripts/<date>-<video_id>.timestamped.txt
 git commit -m "docs: <video_id> 深度文章 + 卡片包 + 字幕原稿"
-git push origin main && git push gitee main
+git push origin main && git push github main
 ```
 
 三件套一起推，缺一不可：**字幕原稿 JSON/ASR JSON、主文、卡片包**。
 
-> ⚠️ Remote 名称固定为 `origin`（GitHub）与 `gitee`（Gitee）——用 `git remote -v` 核实，不要凭记忆或凭空写一个 remote 名。此前一次并行编辑把这里错写成了 `git push github main`，而仓库里根本没有叫 `github` 的 remote，照抄会直接推送失败。
+> ⚠️ Remote 名称固定为 `origin`（Gitee）与 `github`（GitHub）——用 `git remote -v` 核实，不要凭记忆或凭空写一个 remote 名。此前一次并行编辑把这里错写成了 `git push gitee main`，而仓库里根本没有叫 `gitee` 的 remote，照抄会直接推送失败。
 
 Done when: 两个 remote 都返回成功。验证方式（不要只看 `git push` 的输出，本地 remote-tracking 引用可能是陈旧的）：
 
@@ -245,4 +257,4 @@ Done when: exit 0 and a message_id is printed. On exit 2 (missing config), repor
 - [ ] 卡片包能脱离主文独立使用，不是"详见第X章"式空壳
 - [ ] 转录稿已归档且**非空**
 
-脚本已自动覆盖：模块完整性 / 锚点词 / 知识地图三段式结构 / 可信度符号白名单 / 总账加总 / 速览与 Takeaway 标记率 / 来源强度列 / 自测题数与折叠 / 知识网络关系图 / 弹药库五子模块 / 立场证伪信号 / 条件模块触发正确性 / 篇幅 / 金融免责 / 卡片包飞书兼容性。
+脚本已自动覆盖（**可机检项**）：模块与锚点词存在性 / 条件模块触发与多判 / M01 附加清单与分型一致 / 可信度符号白名单 / 总账加总 / 速览与 Takeaway 标记率 / 来源强度列存在 / 自测题数与折叠存在 / 知识网络与弹药库子模块存在性 / 证伪信号计数 / 篇幅区间 / 金融免责措辞 / 卡片包飞书兼容性。**注意：脚本大多只查"锚点词存在"，不判断内容质量**——上面 checklist 中"判断句 vs 名词短语""跨章 vs 单章""重构 vs 搬运"这类语义项仍需人工确认，validator 通过不等于这些项达标。
