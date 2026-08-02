@@ -28,8 +28,11 @@ ARTICLES = SKILL_DIR / "workspace" / "articles"
 TRANSCRIPTS = SKILL_DIR / "workspace" / "transcripts"
 VALIDATOR = SKILL_DIR / "scripts" / "validate_output.py"
 
-# 文件名格式：<YYYY-MM-DD>-<video_id>-<slug>.md
-NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-([A-Za-z0-9_-]{11})-(.+)\.md$")
+# 文件名格式：
+#   旧版: <YYYY-MM-DD>-<youtube_video_id>-<slug>.md
+#   多源: <YYYY-MM-DD>-<source>-<source_video_id>-<slug>.md
+LEGACY_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-([A-Za-z0-9_-]{11})-(.+)\.md$")
+MULTISOURCE_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-([a-z][a-z0-9]*)-([A-Za-z0-9_]+)-(.+)\.md$")
 
 
 def fail(msg: str) -> None:
@@ -69,7 +72,7 @@ def main() -> int:
 
     articles = sorted(
         p for p in ARTICLES.glob("*.md")
-        if not p.name.endswith("-cards.md") and NAME_RE.match(p.name)
+        if not p.name.endswith("-cards.md") and (LEGACY_NAME_RE.match(p.name) or MULTISOURCE_NAME_RE.match(p.name))
     )
     if not articles:
         print("未发现任何正式文章（articles/ 下无 <date>-<vid>-<slug>.md）")
@@ -78,8 +81,14 @@ def main() -> int:
     print(f"\n发现 {len(articles)} 篇正式文章，逐篇检查 …\n")
 
     for art in articles:
-        m = NAME_RE.match(art.name)
-        date, vid = m.group(1), m.group(2)
+        legacy = LEGACY_NAME_RE.match(art.name)
+        multi = MULTISOURCE_NAME_RE.match(art.name)
+        if multi:
+            date, source, vid = multi.group(1), multi.group(2), multi.group(3)
+            transcript_prefixes = [f"{date}-{source}-{vid}", f"{date}-{vid}"]
+        else:
+            date, vid = legacy.group(1), legacy.group(2)
+            transcript_prefixes = [f"{date}-{vid}"]
         print(f"■ {art.name}")
 
         # 1. 卡片包配对
@@ -91,11 +100,13 @@ def main() -> int:
             problems += 1
 
         # 2+3. transcript 归档存在、非空、可解析
-        caption = TRANSCRIPTS / f"{date}-{vid}.json"
-        asr = TRANSCRIPTS / f"{date}-{vid}.asr.json"
-        archive = next((p for p in (caption, asr) if p.is_file()), None)
+        candidates = []
+        for prefix in transcript_prefixes:
+            candidates.extend([TRANSCRIPTS / f"{prefix}.json", TRANSCRIPTS / f"{prefix}.asr.json"])
+        archive = next((p for p in candidates if p.is_file()), None)
         if archive is None:
-            fail(f"transcript 归档缺失 — 期望 {caption.name} 或 {asr.name}")
+            expected_names = " 或 ".join(p.name for p in candidates)
+            fail(f"transcript 归档缺失 — 期望 {expected_names}")
             problems += 1
         elif archive.stat().st_size == 0:
             fail(f"transcript 归档为 0 字节 — {archive.name}")

@@ -13,7 +13,6 @@
 | 添加日期 | source | video_id | URL | 备注 | 状态 |
 |---|---|---|---|---|---|
 | 2026-08-01 | youtube | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | 小Lin说《关税变脸与稀土反杀》，无官方字幕需 ASR fallback。Nolan 本机：yt-dlp.exe 已装（AppData\Roaming\Python\Python312\Scripts\yt-dlp.exe）、faster-whisper medium 已就绪（D:\models\huggingface\models--Systran--faster-whisper-medium）。卡点：本机网络直连 youtube.com 超时，yt-dlp 下载跑不动。下一位认领者若网络可用直接跑 SKILL.md 步骤 1 末尾 ASR fallback 命令即可 | 待处理 |
-| 2026-08-02 | bilibili | BV1V4Te6MEAu | https://www.bilibili.com/video/BV1V4Te6MEAu/ | 小Lin说《AI巨头们之间的资本混战，到底是个什么情况？》(19.5 min)。B 站视频通常无人工字幕，多源骨架改造后首次端到端实测 | 处理中（Nolan-Claude） |
 
 ---
 
@@ -24,6 +23,7 @@
 | 完成日期 | video_id | 标题 | 主文 | 处理者备注 |
 |---|---|---|---|---|
 | — | — | — | — | （示例行） |
+| 2026-08-02 | BV1V4Te6MEAu | 小Lin说《AI巨头们之间的资本混战，到底是个什么情况？》 | workspace/articles/2026-08-02-bilibili-BV1V4Te6MEAu-ai-capex-war.md | B 站首个多源端到端案例；无站内字幕，yt-dlp 下载 m4a + faster-whisper medium ASR；主文与卡片包 validator 73 PASS。 |
 
 ---
 
