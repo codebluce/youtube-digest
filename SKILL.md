@@ -1,20 +1,24 @@
 ---
 name: youtube-digest
-description: "YouTube链接转深度知识文章MD + 速查卡片包，默认中文输出，可选发送飞书。"
-version: 2.0.0
+description: "多源视频链接(YouTube/Bilibili/…)转深度知识文章MD + 速查卡片包，默认中文输出，可选发送飞书。"
+version: 3.0.0
 author: peizhiwu
 license: MIT
 metadata:
   hermes:
-    tags: [youtube, transcript, knowledge-article, feishu, digest]
+    tags: [video, youtube, bilibili, transcript, knowledge-article, feishu, digest]
     related_skills: [youtube-content]
 ---
 
-# YouTube Digest
+# Video Digest (multi-source)
 
 ## Overview
 
-Pipeline: **YouTube URL → transcript → 内容分型 → 深度知识文章 + 速查卡片包 → 校验门禁 → 双推远端 → 可选飞书双发**.
+Pipeline: **视频 URL(任意已注册源) → transcript → 内容分型 → 深度知识文章 + 速查卡片包 → 校验门禁 → 双推远端 → 可选飞书双发**.
+
+**v3.0 起多源化**：处理逻辑(分型/蓝图/卡片/校验)与视频来源**完全解耦**——`references/article-blueprint.md`、`references/cards-spec.md`、`references/content-types.md`、`scripts/validate_output.py` 都不区分源头。新增一个视频源只需在 `scripts/sources/` 加一个文件,见 `scripts/sources/_template.py`。
+
+当前已注册源:**YouTube**、**Bilibili**。源清单由 `scripts/sources/` 目录扫描决定,顶层 `fetch_transcript.py` 自动识别 URL 并路由到对应 adapter,字幕不可用时统一抛出 `captions_unavailable` 错误码,调用方据此进入 ASR fallback(与源头无关,统一走 yt-dlp + faster-whisper)。
 
 The core value is not transcription — it is the article architecture defined in `references/article-blueprint.md`. The article is designed around how readers absorb, retain, and re-tell knowledge: structure-first navigation, chunked chapters, credibility tagging so the reader knows what is fact vs. the host's inference, closed-book self-testing (retrieval practice), and a talking-points arsenal with rebuttal preparation.
 
@@ -33,12 +37,14 @@ The core value is not transcription — it is the article architecture defined i
 
 ## When to Use
 
-- User pastes a YouTube URL and asks for 深度文章 / 知识整理 / 拆解 / 学习笔记 / 转述文案
+- User pastes **any registered video source URL** and asks for 深度文章 / 知识整理 / 拆解 / 学习笔记 / 转述文案
+  - 已注册源: `https://youtube.com/...`, `https://youtu.be/...`, `https://www.bilibili.com/video/BV...`, `https://b23.tv/...`,或裸 video_id(`WTz7LaHuqMw` / `BV1V4Te6MEAu`)
+  - 收到未注册源的 URL 时,`fetch_transcript.py` 会以 exit 2 失败并列出已注册源。此时要么人工提供一个新 adapter(`scripts/sources/<new>.py`,见 `_template.py`),要么坦白告诉用户该源暂不支持
 - User wants the result delivered to Feishu (飞书)
 
-**收到 YouTube 链接后不直接开始转录/写作** — 见下方「入口登记（Intake Gate）」，这是所有触发路径共同的第一道关卡。
+**收到视频链接后不直接开始转录/写作** — 见下方「入口登记（Intake Gate）」，这是所有触发路径共同的第一道关卡。
 
-**Don't use for:** a quick one-paragraph summary (use `youtube-content` directly); non-YouTube sources; videos with transcripts disabled; requests to fabricate content when transcript fetch fails; copyrighted transcript reposting without transformation.
+**Don't use for:** a quick one-paragraph summary (use `youtube-content` directly for YouTube); sources not yet registered as a source adapter; requests to fabricate content when transcript fetch fails; copyrighted transcript reposting without transformation.
 
 **Boundaries:**
 - Never invent missing transcript content, timestamps, numbers, guest names, sponsors, charts, or claims.
@@ -51,16 +57,17 @@ The core value is not transcription — it is the article architecture defined i
 
 ```bash
 # Dependencies
-uv pip install youtube-transcript-api requests yt-dlp faster-whisper
-# PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests yt-dlp faster-whisper
-# ffmpeg is also required for audio download/normalization — install via the platform's
-# own package manager and ensure it's on PATH:
+uv pip install youtube-transcript-api requests yt-dlp faster-whisper PyAV
+# PEP 668 systems without uv: python3 -m venv ~/.venvs/yt-digest && ~/.venvs/yt-digest/bin/pip install youtube-transcript-api requests yt-dlp faster-whisper PyAV
+# ffmpeg is also required for audio normalization (PyAV can decode webm directly,
+# so strictly optional but recommended) — install via the platform's own package
+# manager and ensure it's on PATH:
 #   macOS:   brew install ffmpeg
 #   Linux:   sudo apt install ffmpeg
 #   Windows: install ffmpeg and add its bin/ directory to PATH
 ```
 
-**Env vars** — copy `.env.example` to `.env` and fill in real values. `.env` is gitignored; never commit it. Feishu vars are only needed for step 8; HF_HOME is only needed when running the ASR fallback.
+**Env vars** — copy `.env.example` to `.env` and fill in real values. `.env` is gitignored; never commit it. Feishu vars are only needed for step 8; HF_HOME only when running ASR fallback; `BILIBILI_SESSDATA` only when attempting B 站 AI 字幕 (optional).
 
 **Local ASR model cache policy — platform-agnostic, no hardcoded paths.** faster-whisper models must be cached outside the skill repo, in a directory the executing machine chooses for itself:
 
@@ -76,11 +83,18 @@ export TRANSFORMERS_CACHE="$HF_HOME/transformers"
 
 ## Transcript Strategy
 
-1. **YouTube captions first** — `fetch_transcript.py` tries YouTubeTranscriptApi with preferred languages.
-2. **ASR fallback** — when captions are disabled/unavailable and the user approves audio processing, download audio with yt-dlp, normalize with ffmpeg, and transcribe locally with faster-whisper.
-   - Default local model: `medium`; default language: `zh`; cache directory: whatever `HF_HOME` resolves to on the executing machine (see Setup above — never hardcode a drive letter or path here).
-   - CPU-only machine: the `medium` model may take tens of minutes for a 30-minute video, regardless of OS.
-   - Mark article metadata as `文本来源：本地 ASR 转写`; do not pretend ASR is official subtitles.
+1. **官方字幕优先** — `fetch_transcript.py` 自动识别 URL 的源,调用对应 adapter 拉取字幕:
+   - YouTube → `youtube-transcript-api`,按 `zh,en` 优先级,失败回落自动选轨
+   - Bilibili → B 站 `x/player/v2` API。**多数 B 站视频无人工字幕轨**(UP 主未上传),部分有 AI 字幕(CCM)但需要 SESSDATA cookie 才稳定返回,多数情况下本源会抛 `CaptionsUnavailableError` 触发 ASR fallback
+   - 新源 → 由新 adapter 决定;同一接口约束下什么源都行
+2. **ASR fallback** — 字幕不可用 (`CaptionsUnavailableError` / exit 3) 且**用户明确同意音频处理**时,统一下载 + 本地转写。这一步与源头**完全无关**:
+   - yt-dlp 原生支持所有已注册源(YouTube / Bilibili 都是开箱即用)
+   - faster-whisper 默认 `medium` 模型,默认语言 `zh`
+   - cache 目录取决于 `HF_HOME`(见 Setup,不写死路径)
+   - CPU-only 机器上 `medium` 跑 30 分钟视频可能要几十分钟,跨平台一致
+   - 文章 M00 元信息标注 `文本来源：本地 ASR 转写`(由 ASR 得到时);不得假装 ASR 是官方字幕
+
+**B 站特殊环境变量(可选)**: `BILIBILI_SESSDATA` — 配置后可尝试拉 AI 字幕;不配也不阻塞,直接走 ASR fallback。
 
 Feishu delivery requires an app (custom bot webhook cannot send files). Set env vars before use:
 
@@ -97,12 +111,15 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 
 ## Naming Convention
 
-**格式**：`<YYYY-MM-DD>-<video_id>-<slug>[.suffix]`
+**格式**：`<YYYY-MM-DD>-<source>-<video_id>-<slug>[.suffix]`
 
 ```
 日期    取文章 M00「整理日期」的值，不是文件系统 mtime。放最前面是为了
         让 ls 按时间自然排序——video_id 是随机字符串，排序毫无意义。
-video_id  保留，用于溯源与去重，但不再是文件名里唯一可读的部分。
+source  视频来源源名,跟 scripts/sources/ 里 adapter 的 SOURCE_NAME 一致,
+        如 'youtube' / 'bilibili'。v3.0 新增,避免出现 YouTube 11 字符 ID
+        与 B站 BV 号的命名空间冲突。
+video_id  源内稳定 ID。保留，用于溯源与去重。
 slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题，不是来源标签。
         禁止：中文概念的拼音缩写（如"大摩"写成 damo、"军备"写成 junbei）；
         冗余后缀（如 -digest——本 skill 产出的都是 digest，加了等于没加）。
@@ -113,22 +130,28 @@ slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题�
 **示例**：
 
 ```
-2026-07-29-fKoWrF49Qo8-trump-wealth-playbook.md
-2026-07-29-fKoWrF49Qo8-trump-wealth-playbook-cards.md
-2026-07-29-fKoWrF49Qo8.json                            (transcript)
+2026-07-29-youtube-fKoWrF49Qo8-trump-wealth-playbook.md
+2026-07-29-youtube-fKoWrF49Qo8-trump-wealth-playbook-cards.md
+2026-07-29-youtube-fKoWrF49Qo8.json                       (transcript)
+
+2026-08-02-bilibili-BV1V4Te6MEAu-ai-capital-war.md
+2026-08-02-bilibili-BV1V4Te6MEAu-ai-capital-war-cards.md
+2026-08-02-bilibili-BV1V4Te6MEAu.json                     (transcript)
 ```
 
 三类产出统一套用此格式：主文、卡片包（加 `-cards` 后缀）、transcript 归档。ASR fallback 产出的 `.asr.json` / `.full.txt` / `.timestamped.txt` 后缀不变，同样加日期前缀。
+
+**老文件兼容**: v3.0 之前已存在的文章/卡片命名是 `<date>-<video_id>-<slug>.md`(无 source 段),不强制重命名。`validate_output.py` 的卡片自动配对基于文件名 stem,不依赖具体格式,所以新老命名可以共存。新增产出**一律**走新格式。
 
 `validate_output.py` 的卡片自动配对基于文件名 stem（去掉 `.md` 后加 `-cards.md`），不依赖具体格式，改名不影响校验。
 
 ## Intake Gate — 登记优先于执行
 
-**这是入口机制，先于步骤 1，对每一个新收到的 YouTube 链接都强制生效。**
+**这是入口机制，先于步骤 1，对每一个新收到的视频链接（任意已注册源）都强制生效。**
 
 多个 agent（本地不同会话、不同机器、有/无 ASR 能力）共享同一个仓库。默认假设是：收到链接的这个 agent 不一定是应该马上处理它的那个 agent。因此：
 
-1. **提取 `video_id`**，检查 `workspace/todolist.md`「待处理」表和 `workspace/articles/` 是否已有同一 `video_id` 的条目/产出——避免重复登记或重复处理。
+1. **识别源 + 提取 `video_id`**(由 `scripts/sources/` 里的 adapter 完成,如 YouTube 11 字符 / B 站 BV 号),检查 `workspace/todolist.md`「待处理」表和 `workspace/articles/` 是否已有同一 (源, video_id) 的条目/产出——避免重复登记或重复处理。
 2. **登记一行到 `workspace/todolist.md`「待处理」表**：添加日期、video_id、URL、用户随口提到的备注（若有），状态写 `待处理`。不要求先探测是否有字幕、不要求抓取标题——登记本身必须是零重活动作，只是记账。
 3. **立即提交并推送这一次登记**，让其他机器上的 agent 能看到最新队列。Remote 别名按 URL 现查，不要硬编码（原因见步骤 7 的说明）：
    ```bash
@@ -156,33 +179,40 @@ slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题�
 ### 1. Fetch transcript
 
 ```bash
-uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL>" --language zh,en --timestamps \
-  --output SKILL_DIR/workspace/transcripts/<date>-<video_id>.json
+uv run python3 SKILL_DIR/scripts/fetch_transcript.py "<URL或video_id>" --language zh,en --timestamps \
+  --output SKILL_DIR/workspace/transcripts/<date>-<source>-<video_id>.json
 ```
 
-(No uv on the server: use the venv python from Setup.) Done when: JSON with non-empty `full_text`. The script defaults to `zh,en` and retries without language restriction when needed. On failure it prints an error JSON to stdout and exits 1 — it never falls back to ASR by itself.
+URL 形态不限:`https://www.youtube.com/watch?v=...`、`https://youtu.be/...`、`https://www.bilibili.com/video/BV...`、`https://b23.tv/...`、或裸 video_id(如 `WTz7LaHuqMw` / `BV1V4Te6MEAu`)。底层根据 URL 自动路由到对应 adapter。
 
-**If captions are unavailable and the user approves ASR fallback**, run:
+退出码约定:
+- `0` 字幕拉取 + 落盘成功(stdout JSON 含 `json` 路径等)
+- `2` URL 无法识别为已注册源 → 报告用户该源暂不支持,或参考 `scripts/sources/_template.py` 新写一个 adapter
+- `3` 字幕不可用 (`captions_unavailable`) → 进入下方 ASR fallback 分支(经用户确认)
+- `4` 源端网络/API 异常 → 报告用户重试或换网络环境
+- `5` 落盘文件为空 → 找文件系统/权限问题,见 pitfall #7
+
+**字幕不可用 → ASR fallback**(源无关):
 
 ```bash
-# Download audio; add --proxy socks5://127.0.0.1:1080 when needed
-uv run python3 -m yt_dlp -f "bestaudio/best" --output "SKILL_DIR/workspace/audio/%(id)s.%(ext)s" "<URL>"
+# 1) 下载音频(yt-dlp 原生支持所有已注册源,加 --proxy socks5://127.0.0.1:1080 走代理)
+uv run python3 -m yt_dlp -f "bestaudio/best" --output "SKILL_DIR/workspace/audio/%(id)s.%(ext)s" "<canonical_url>"
 
-# Optional but recommended: normalize audio when ffmpeg is available
+# 2) 可选但推荐: ffmpeg 归一化到 16kHz 单声道 WAV(没 ffmpeg 时 PyAV 也能直接读 webm)
 ffmpeg -y -i SKILL_DIR/workspace/audio/<video_id>.webm -ar 16000 -ac 1 -c:a pcm_s16le SKILL_DIR/workspace/audio/<video_id>.wav
 
-# HF_HOME / HF_HUB_CACHE / TRANSFORMERS_CACHE should already be exported in this
-# shell per the Setup section above — do not inline a hardcoded path here.
-uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<video_id>
+# 3) faster-whisper 本地转写 (HF_HOME 等 cache 变量由 Setup 段设置,不在此硬编码路径)
+uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav \
+  --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<source>-<video_id>
 ```
 
-(`<video_id>.wav` under `workspace/audio/` is a gitignored temp file — no date prefix needed there. The `--output-prefix` target under `workspace/transcripts/` is the permanent archive, so it takes the full `<date>-<video_id>` per the Naming Convention above.)
+(`<video_id>.wav` 在 `workspace/audio/` 是 gitignored 临时文件,无需日期前缀。`--output-prefix` 指向 `workspace/transcripts/` 是正式归档,按 Naming Convention 拼 `<date>-<source>-<video_id>`。)
 
-ASR is done when `<date>-<video_id>.asr.json`, `<date>-<video_id>.full.txt`, and `<date>-<video_id>.timestamped.txt` exist (see Naming Convention above for `<date>`). Use the ASR JSON as the transcript archive in step 2. If both captions and ASR fail, stop and report the gap; never fabricate transcript content.
+ASR is done when `<date>-<source>-<video_id>.asr.json`, `<date>-<source>-<video_id>.full.txt`, and `<date>-<source>-<video_id>.timestamped.txt` exist (see Naming Convention above for `<date>`). Use the ASR JSON as the transcript archive in step 2. If both captions and ASR fail, stop and report the gap; never fabricate transcript content.
 
 ### 2. ARCHIVE the transcript — mandatory, before writing anything
 
-Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<date>-<video_id>.json` for official captions, or keep `SKILL_DIR/workspace/transcripts/<date>-<video_id>.asr.json` for ASR fallback. This is mandatory. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
+Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<date>-<source>-<video_id>.json` for official captions, or keep `SKILL_DIR/workspace/transcripts/<date>-<source>-<video_id>.asr.json` for ASR fallback. This is mandatory. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
 
 **If ASR fallback was used, clean up `workspace/audio/` now that the transcript is safely archived:**
 
@@ -190,7 +220,7 @@ Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<date>-<video_i
 rm -f SKILL_DIR/workspace/audio/<video_id>.webm SKILL_DIR/workspace/audio/<video_id>.wav
 ```
 
-Order matters — only delete **after** confirming the `.asr.json`/`.full.txt`/`.timestamped.txt` archive is non-empty, never before. The audio was always meant to be disposable (see Naming Convention: `workspace/audio/` is gitignored and never committed), but leaving it on disk after the transcript exists just wastes space for no benefit — a 30-minute video's audio is tens of MB, versus a few hundred KB of archived text. Skip this step when the transcript came from YouTube captions directly (no audio was ever downloaded in that path).
+Order matters — only delete **after** confirming the `.asr.json`/`.full.txt`/`.timestamped.txt` archive is non-empty, never before. The audio was always meant to be disposable (see Naming Convention: `workspace/audio/` is gitignored and never committed), but leaving it on disk after the transcript exists just wastes space for no benefit — a 30-minute video's audio is tens of MB, versus a few hundred KB of archived text. Skip this step when the transcript came from official captions directly (no audio was ever downloaded in that path).
 
 ### 3. Determine content type
 
@@ -204,11 +234,11 @@ Load `references/article-blueprint.md` and follow the module lock table exactly:
 
 - **Default output language is Chinese** regardless of the video's language; keep original English terms in parentheses on first appearance when useful.
 - If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing.
-- Save to `SKILL_DIR/workspace/articles/<date>-<video_id>-<slug>.md` when running inside this repo; otherwise `~/youtube-digests/<date>-<video_id>-<slug>.md`.
+- Save to `SKILL_DIR/workspace/articles/<date>-<source>-<video_id>-<slug>.md` when running inside this repo; otherwise `~/youtube-digests/<date>-<source>-<video_id>-<slug>.md`.
 
 ### 5. Write the cards pack
 
-Load `references/cards-spec.md`. Save to `<same_dir>/<date>-<video_id>-<slug>-cards.md`.
+Load `references/cards-spec.md`. Save to `<same_dir>/<date>-<source>-<video_id>-<slug>-cards.md`.
 
 Hard constraints: no pipe tables (Feishu does not render them), no `<details>` (Feishu exposes the answers), ≤3500 CJK chars. The cards pack must be usable **without** the article open.
 
@@ -233,13 +263,13 @@ uv run python3 SKILL_DIR/scripts/audit_workspace.py   # 必须 exit 0 才允许�
 然后执行：
 
 ```bash
-git add workspace/transcripts/<date>-<video_id>.json \
-        workspace/articles/<date>-<video_id>-<slug>.md \
-        workspace/articles/<date>-<video_id>-<slug>-cards.md
+git add workspace/transcripts/<date>-<source>-<video_id>.json \
+        workspace/articles/<date>-<source>-<video_id>-<slug>.md \
+        workspace/articles/<date>-<source>-<video_id>-<slug>-cards.md
 # ASR fallback 的归档文件（存在才加）：
-#   workspace/transcripts/<date>-<video_id>.asr.json
-#   workspace/transcripts/<date>-<video_id>.full.txt
-#   workspace/transcripts/<date>-<video_id>.timestamped.txt
+#   workspace/transcripts/<date>-<source>-<video_id>.asr.json
+#   workspace/transcripts/<date>-<source>-<video_id>.full.txt
+#   workspace/transcripts/<date>-<source>-<video_id>.timestamped.txt
 git commit -m "docs: <video_id> 深度文章 + 卡片包 + 字幕原稿"
 ```
 
@@ -285,7 +315,7 @@ Done when: exit 0 and a message_id is printed. On exit 2 (missing config), repor
 
 ## Common Pitfalls
 
-1. **Datacenter IP blocked by YouTube.** Cloud servers (阿里云/腾讯云/AWS) are frequently blocked: error mentions "blocking requests from your IP". Fixes: set `HTTPS_PROXY` to a residential proxy; or fetch the transcript on an unblocked machine and copy the JSON over. Never substitute a fabricated transcript.
+1. **Datacenter IP blocked (YouTube/B 站共通).** Cloud servers (阿里云/腾讯云/AWS) are frequently blocked by YouTube specifically; B 站风控对数据中心 IP 也明显更严格. Error signature: "blocking requests from your IP" / B 站 `code: -412` / 大量 412/412-like HTTPS. Fixes: set `HTTPS_PROXY` to a residential proxy; or fetch the transcript on an unblocked machine and copy the JSON over. Never substitute a fabricated transcript.
 2. **Number conflicts inside the transcript** (e.g. 265亿 vs 290亿). Keep both, annotate their context — do not silently pick one. These pairs are prime material for the cards pack's 讲错风险清单.
 3. **Subtitle dumping.** The article must *restructure* (timeline / causality / comparison), not paste paragraphs of raw transcript. If a chapter reads like verbatim subtitles, rewrite it.
 4. **Credibility qualifiers eroding in summaries.** The most common real-world drift: the body text says "按 XX 公司的说法…4 倍", but the 速览 / 概念卡片 / 要点清单 drop the qualifier and state it as fact. Those compressed positions are exactly what readers quote. Tag every one of them.
@@ -293,7 +323,7 @@ Done when: exit 0 and a message_id is printed. On exit 2 (missing config), repor
 6. **Premature completion.** Sending the raw transcript, a flat summary, or the article alone does not count. The deliverable is: article + cards pack + validation exit 0.
 7. **Empty transcript archive.** Writing the JSON is not the same as verifying it. Check the byte size.
 8. **Hardcoded remote alias names.** `origin`/`gitee`/`github` are per-machine local git config, not repository facts — this has been fixed back and forth incorrectly across parallel sessions on different machines more than once. Always resolve by URL (`git remote -v | grep github.com` / `gitee.com`) per the Naming-free snippet in step 7, never assume a specific alias string.
-9. **Skipping the Intake Gate.** Jumping straight to transcript fetch when a YouTube URL arrives, without first logging it in `workspace/todolist.md` and confirming execution — this defeats the multi-agent handoff the todolist exists for. Registration happens even when the user's message already implies "do it now."
+9. **Skipping the Intake Gate.** Jumping straight to transcript fetch when a video URL (any source) arrives, without first logging it in `workspace/todolist.md` and confirming execution — this defeats the multi-agent handoff the todolist exists for. Registration happens even when the user's message already implies "do it now."
 10. **Leftover audio in `workspace/audio/`.** ASR fallback downloads/normalizes audio there; step 2 includes a cleanup command run right after the transcript archive is verified non-empty. If a run gets interrupted before that cleanup, stray `.webm`/`.wav` files can accumulate silently (gitignored, so they never show up in `git status` — check the directory directly).
 
 ## Verification Checklist

@@ -1,179 +1,176 @@
 #!/usr/bin/env python3
+"""多源视频 transcript 抓取入口。
+
+支持任意已注册的视频源(YouTube/Bilibili/未来扩展),自动识别 URL 路由到对应 adapter。
+字幕不可用时输出明确错误码 `captions_unavailable`,由调用方决定走 ASR fallback
+(见 SKILL.md 步骤 1 末尾的 ASR 命令模板 — 与源头无关,统一走 yt-dlp + faster-whisper)。
+
+用法:
+    python3 fetch_transcript.py <URL或video_id> [--language zh,en] [--timestamps]
+                                [--output FILE] [--metadata-only]
+
+成功(stdout 最后行,JSON):
+    {"ok": true, "source": "youtube", "video_id": "...", "json": "...", "timestamped": "..."}
+
+字幕不可用(exit 3,stderr JSON):
+    {"error": "...", "captions_unavailable": true,
+     "audio_fallback": {"url": "...", "video_id": "...", "source": "..."}}
+
+URL 不可识别(exit 2):
+    {"error": "URL 无法识别", "registered_sources": [...]}
+
+输出文件命名(归档到 workspace/transcripts/,与 SKILL.md 命名约定一致):
+    <output 显式指定>  优先
+    否则自动:  <date>-<source>-<video_id>.json
+               <date>-<source>-<video_id>.timestamped.txt  (仅 --timestamps)
 """
-Fetch a YouTube video transcript and output it as structured JSON.
 
-Usage:
-    uv run python3 fetch_transcript.py <url_or_video_id> [--language zh,en] [--timestamps] [--output PATH]
-
-Default language preference is Chinese first, then English. If the preferred
-language fetch fails, the script retries once without language restriction.
-
-This script ONLY fetches YouTube captions. It never downloads audio and never
-falls back to ASR — when captions are unavailable it prints an error JSON to
-stdout and exits 1, leaving the ASR decision to the agent (see SKILL.md step 1).
-
-Output (JSON):
-    {
-        "video_id": "...",
-        "language": "en",
-        "segments": [{"text": "...", "start": 0.0, "duration": 2.5}, ...],
-        "full_text": "complete transcript as plain text",
-        "timestamped_text": "00:00 first line\n00:05 second line\n..."
-    }
-
-Install dependency:  uv pip install youtube-transcript-api
-"""
+from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
+from datetime import date
 from pathlib import Path
 
+# 让本脚本能找到 sources/ 包 (跨平台)
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR))
 
-def extract_video_id(url_or_id: str) -> str:
-    """Extract the 11-character video ID from various YouTube URL formats."""
-    url_or_id = url_or_id.strip()
-    patterns = [
-        r'(?:v=|youtu\.be/|shorts/|embed/|live/)([a-zA-Z0-9_-]{11})',
-        r'^([a-zA-Z0-9_-]{11})$',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url_or_id)
-        if match:
-            return match.group(1)
-    return url_or_id
+from sources import (  # noqa: E402
+    CaptionsUnavailableError,
+    SourceFetchError,
+    SourceNotRecognizedError,
+    adapter_for,
+    all_sources,
+)
 
 
-def format_timestamp(seconds: float) -> str:
-    """Convert seconds to HH:MM:SS or MM:SS format."""
-    total = int(seconds)
-    h, remainder = divmod(total, 3600)
-    m, s = divmod(remainder, 60)
-    if h > 0:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
-
-
-def fetch_transcript(video_id: str, languages: list = None):
-    """Fetch transcript segments from YouTube.
-
-    Returns a list of dicts with 'text', 'start', and 'duration' keys.
-    Compatible with youtube-transcript-api v1.x.
-    """
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi
-    except ImportError:
-        print("Error: youtube-transcript-api not installed. Run: uv pip install youtube-transcript-api",
-              file=sys.stderr)
-        sys.exit(1)
-
-    api = YouTubeTranscriptApi()
-    if languages:
-        result = api.fetch(video_id, languages=languages)
-    else:
-        result = api.fetch(video_id)
-
-    # v1.x returns FetchedTranscriptSnippet objects; normalize to dicts
-    return [
-        {"text": seg.text, "start": seg.start, "duration": seg.duration}
-        for seg in result
-    ]
-
-
-def fail(payload: dict) -> None:
-    """Print an error JSON to stdout and exit 1 (agent parses stdout)."""
-    print(json.dumps(payload, ensure_ascii=False))
-    sys.exit(1)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Fetch YouTube transcript as JSON")
-    parser.add_argument("url", help="YouTube URL or 11-char video ID")
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="多源视频 transcript 抓取 (YouTube/Bilibili/...)",
+        epilog="新源支持只需在 scripts/sources/ 加一个文件,本入口自动识别。",
+    )
+    parser.add_argument("url", help="视频 URL 或源内稳定 video_id")
     parser.add_argument("--language", "-l", default="zh,en",
-                        help="Comma-separated language codes (e.g. zh,en). Default: zh,en")
+                        help="字幕语言优先级,逗号分隔 (默认 zh,en)")
     parser.add_argument("--timestamps", "-t", action="store_true",
-                        help="Include timestamped text in output")
-    parser.add_argument("--text-only", action="store_true",
-                        help="Output plain text instead of JSON")
+                        help="额外输出 timestamped_text 文件")
     parser.add_argument("--output", "-o", default=None,
-                        help="Write the JSON archive to this path instead of stdout "
-                             "(parent directories are created; the file is verified "
-                             "non-empty after writing)")
+                        help="输出 JSON 路径 (默认 workspace/transcripts/<date>-<source>-<id>.json)")
+    parser.add_argument("--metadata-only", action="store_true",
+                        help="只拉元数据不拉字幕 (调试用)")
     args = parser.parse_args()
 
-    video_id = extract_video_id(args.url)
     languages = [l.strip() for l in args.language.split(",")] if args.language else None
 
+    # ── 1. 识别源与 video_id ──
     try:
-        segments = fetch_transcript(video_id, languages)
-        resolved_language = ",".join(languages) if languages else "auto"
-    except Exception as first_error:
-        # Default zh,en may fail when a video only exposes another transcript language.
-        # Retry once with YouTubeTranscriptApi's auto selection before reporting failure.
-        try:
-            segments = fetch_transcript(video_id, None)
-            resolved_language = "auto_after_preferred_failed"
-        except Exception as e:
-            error_msg = str(e)
-            first_error_msg = str(first_error)
-            combined = (error_msg + " " + first_error_msg).lower()
-            if "blocking requests from your ip" in combined:
-                fail({"error": "YouTube is blocking this server's IP. Use HTTPS_PROXY or fetch from another machine. See SKILL.md pitfall #1.",
-                      "captions_unavailable": False})
-            captions_gone = ("disabled" in combined) or ("no transcript" in combined)
-            fail({"error": error_msg,
-                  "first_error": first_error_msg,
-                  "captions_unavailable": captions_gone,
-                  "hint": "captions_unavailable=true means the ASR fallback path (SKILL.md step 1) is applicable — ask the user before running it."})
+        adapter = adapter_for(args.url)
+    except SourceNotRecognizedError as e:
+        print(json.dumps({
+            "error": str(e),
+            "registered_sources": sorted(s.SOURCE_NAME for s in all_sources()),
+        }, ensure_ascii=False), file=sys.stderr)
+        return 2
 
-    full_text = " ".join(seg["text"] for seg in segments)
-    timestamped = "\n".join(
-        f"{format_timestamp(seg['start'])} {seg['text']}" for seg in segments
-    )
+    try:
+        video_id = adapter.__class__.parse_video_id(args.url)
+    except SourceNotRecognizedError as e:
+        print(json.dumps({"error": str(e)}, ensure_ascii=False), file=sys.stderr)
+        return 2
 
-    if not full_text.strip():
-        fail({"error": "transcript fetched but full_text is empty",
-              "video_id": video_id,
-              "captions_unavailable": True})
+    # ── 2. 拉元数据 (尽力而为,失败不阻塞) ──
+    metadata: dict = {}
+    try:
+        metadata = adapter.fetch_metadata(video_id) or {}
+    except Exception as e:
+        print(f"[warn] 元数据拉取失败 ({adapter.SOURCE_NAME}): {e}", file=sys.stderr)
 
-    if args.text_only:
-        out = timestamped if args.timestamps else full_text
-        if args.output:
-            _write_verified(Path(args.output), out)
-        else:
-            print(out)
-        return
+    if args.metadata_only:
+        print(json.dumps({
+            "ok": True,
+            "source": adapter.SOURCE_NAME,
+            "video_id": video_id,
+            "metadata": metadata,
+        }, ensure_ascii=False, indent=2))
+        return 0
 
-    result = {
-        "video_id": video_id,
-        "language": resolved_language,
-        "segment_count": len(segments),
-        "duration": format_timestamp(segments[-1]["start"] + segments[-1]["duration"]) if segments else "0:00",
-        "full_text": full_text,
-    }
-    if args.timestamps:
-        result["timestamped_text"] = timestamped
+    # ── 3. 拉字幕 ──
+    try:
+        transcript = adapter.fetch_transcript(video_id, languages=languages)
+    except CaptionsUnavailableError as e:
+        # 路由到 ASR fallback — 给调用方足够的信息去跑 yt-dlp + whisper
+        print(json.dumps({
+            "error": str(e),
+            "reason": e.reason,
+            "captions_unavailable": True,
+            "audio_fallback": {
+                "source": adapter.SOURCE_NAME,
+                "video_id": video_id,
+                "url": adapter.get_audio_download_url(video_id),
+                "hint": (
+                    "走 ASR fallback: yt-dlp 下载音频 + faster-whisper 转写。"
+                    "见 SKILL.md 步骤 1 末尾 ASR 命令模板"
+                ),
+            },
+            "metadata": metadata,
+        }, ensure_ascii=False), file=sys.stderr)
+        return 3
+    except SourceFetchError as e:
+        print(json.dumps({
+            "error": str(e),
+            "source": adapter.SOURCE_NAME,
+            "video_id": video_id,
+        }, ensure_ascii=False), file=sys.stderr)
+        return 4
 
-    payload = json.dumps(result, ensure_ascii=False, indent=2)
+    # ── 4. 落盘 ──
     if args.output:
-        _write_verified(Path(args.output), payload)
-        # Also echo to stdout so the agent sees the content without re-reading.
-        print(payload)
+        out_json = Path(args.output)
     else:
-        print(payload)
+        today = date.today().isoformat()
+        out_json = Path("workspace/transcripts") / f"{today}-{adapter.SOURCE_NAME}-{video_id}.json"
 
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    payload = transcript.to_dict()
+    payload["raw_metadata"] = metadata
 
-def _write_verified(path: Path, content: str) -> None:
-    """Write file and verify it landed non-empty (SKILL.md pitfall #7)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    size = path.stat().st_size
-    if size == 0:
-        print(f"Error: wrote 0-byte file — {path}", file=sys.stderr)
-        sys.exit(1)
-    print(f"[fetch_transcript] archived {size} bytes -> {path}", file=sys.stderr)
+    json_text = json.dumps(payload, ensure_ascii=False, indent=2)
+    out_json.write_text(json_text, encoding="utf-8")
+
+    # 步骤 2 的硬要求: 写完必须验证非空
+    if out_json.stat().st_size == 0:
+        print(json.dumps({
+            "error": f"落盘文件为空 {out_json} — 见 SKILL.md pitfall #7"
+        }, ensure_ascii=False), file=sys.stderr)
+        return 5
+
+    out_ts = None
+    if args.timestamps and transcript.timestamped_text:
+        out_ts = out_json.with_suffix(".timestamped.txt")
+        out_ts.write_text(transcript.timestamped_text, encoding="utf-8")
+
+    # ── 5. 输出摘要 (机器可读) ──
+    print(json.dumps({
+        "ok": True,
+        "source": transcript.source,
+        "video_id": transcript.video_id,
+        "language": transcript.language,
+        "source_track": transcript.source_track,
+        "segment_count": transcript.segment_count,
+        "duration": transcript.duration,
+        "json": str(out_json),
+        "timestamped": str(out_ts) if out_ts else None,
+        "metadata_excerpt": {
+            "title": metadata.get("title"),
+            "uploader": metadata.get("uploader"),
+            "duration": metadata.get("duration"),
+        },
+    }, ensure_ascii=False, indent=2))
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
