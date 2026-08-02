@@ -36,6 +36,8 @@ The core value is not transcription — it is the article architecture defined i
 - User pastes a YouTube URL and asks for 深度文章 / 知识整理 / 拆解 / 学习笔记 / 转述文案
 - User wants the result delivered to Feishu (飞书)
 
+**收到 YouTube 链接后不直接开始转录/写作** — 见下方「入口登记（Intake Gate）」，这是所有触发路径共同的第一道关卡。
+
 **Don't use for:** a quick one-paragraph summary (use `youtube-content` directly); non-YouTube sources; videos with transcripts disabled; requests to fabricate content when transcript fetch fails; copyrighted transcript reposting without transformation.
 
 **Boundaries:**
@@ -120,9 +122,36 @@ slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题�
 
 `validate_output.py` 的卡片自动配对基于文件名 stem（去掉 `.md` 后加 `-cards.md`），不依赖具体格式，改名不影响校验。
 
+## Intake Gate — 登记优先于执行
+
+**这是入口机制，先于步骤 1，对每一个新收到的 YouTube 链接都强制生效。**
+
+多个 agent（本地不同会话、不同机器、有/无 ASR 能力）共享同一个仓库。默认假设是：收到链接的这个 agent 不一定是应该马上处理它的那个 agent。因此：
+
+1. **提取 `video_id`**，检查 `workspace/todolist.md`「待处理」表和 `workspace/articles/` 是否已有同一 `video_id` 的条目/产出——避免重复登记或重复处理。
+2. **登记一行到 `workspace/todolist.md`「待处理」表**：添加日期、video_id、URL、用户随口提到的备注（若有），状态写 `待处理`。不要求先探测是否有字幕、不要求抓取标题——登记本身必须是零重活动作，只是记账。
+3. **立即提交并推送这一次登记**，让其他机器上的 agent 能看到最新队列。Remote 别名按 URL 现查，不要硬编码（原因见步骤 7 的说明）：
+   ```bash
+   GH_REMOTE=$(git remote -v | awk '/github\.com/ && /\(push\)/ {print $1; exit}')
+   GITEE_REMOTE=$(git remote -v | awk '/gitee\.com/ && /\(push\)/ {print $1; exit}')
+   git add workspace/todolist.md
+   git commit -m "todo: 登记待处理视频 <video_id>"
+   git push "$GH_REMOTE" main && git push "$GITEE_REMOTE" main
+   ```
+   这是轻量推送，**不需要**跑 `scripts/audit_workspace.py`——那是产出物（文章+卡片包）的门禁，不适用于登记表这种纯记账变更。
+4. **向用户提问**：「已登记进待办清单。现在就用当前 agent 执行 digest 吗？」
+
+**只有用户明确回答"是/现在做/立刻处理"之类，才继续进入下面的步骤 1。** 用户如果说"先不用""放着就行""等有 ASR 的机器处理"或没有明确肯定，就停在这里——条目留在待处理表，不做任何转录或写作动作。
+
+**例外**：用户在发链接的同一句话里已经给出明确的立即执行指令（例如"加工这个视频""马上处理这个"），可以视为已经完成了确认，跳过"询问"这一步，但**登记这一步永远不跳过**——照样先写入 todolist，再继续，这样待办表和已处理产出能对得上。
+
+处理完成后（跑完下面的完整流程、校验通过、双推完成），把这一行从「待处理」表移到「已完成」表，补上产出路径，同样提交推送。
+
+---
+
 ## Workflow
 
-**八步，顺序执行，不得跳步。** 步骤 6 是硬门禁，步骤 7 双推是默认动作。
+**八步，顺序执行，不得跳步。** 步骤 6 是硬门禁，步骤 7 双推是默认动作。前提：已通过上方的 Intake Gate。
 
 ### 1. Fetch transcript
 
@@ -204,17 +233,30 @@ git add workspace/transcripts/<date>-<video_id>.json \
 #   workspace/transcripts/<date>-<video_id>.full.txt
 #   workspace/transcripts/<date>-<video_id>.timestamped.txt
 git commit -m "docs: <video_id> 深度文章 + 卡片包 + 字幕原稿"
-git push origin main && git push github main
+```
+
+> ⚠️ **Remote 别名不可硬编码。** `origin` / `gitee` / `github` 这些名字是每台机器本地的 git 配置，不是仓库内容——不同机器的 clone 完全可能给同一个远程仓库起不同的别名。这个坑已经在不同并行会话之间来回踩过好几次：一次写死成 `origin`(GitHub)+`gitee`，下一次"修复"改成 `origin`(Gitee)+`github`，两次都只对某一台机器成立，对另一台都会直接推送失败。**正确做法是每次都按 URL 现查，不要假设任何具体名字：**
+>
+> ```bash
+> GH_REMOTE=$(git remote -v | awk '/github\.com/ && /\(push\)/ {print $1; exit}')
+> GITEE_REMOTE=$(git remote -v | awk '/gitee\.com/ && /\(push\)/ {print $1; exit}')
+> echo "GitHub remote 别名 = ${GH_REMOTE:-<未配置>} ｜ Gitee remote 别名 = ${GITEE_REMOTE:-<未配置>}"
+> ```
+>
+> 如果两者有一个是空的，说明这台机器缺对应的 remote，需要先 `git remote add` 补上（URL 见仓库现有的另一个 remote，或问用户），不要跳过某个 remote 就继续。
+
+用上面解析出的别名推送：
+
+```bash
+git push "$GH_REMOTE" main && git push "$GITEE_REMOTE" main
 ```
 
 三件套一起推，缺一不可：**字幕原稿 JSON/ASR JSON、主文、卡片包**。
 
-> ⚠️ Remote 名称固定为 `origin`（Gitee）与 `github`（GitHub）——用 `git remote -v` 核实，不要凭记忆或凭空写一个 remote 名。此前一次并行编辑把这里错写成了 `git push gitee main`，而仓库里根本没有叫 `gitee` 的 remote，照抄会直接推送失败。
-
 Done when: 两个 remote 都返回成功。验证方式（不要只看 `git push` 的输出，本地 remote-tracking 引用可能是陈旧的）：
 
 ```bash
-git ls-remote origin main && git ls-remote github main   # 两者应与本地 HEAD 一致
+git ls-remote "$GH_REMOTE" main && git ls-remote "$GITEE_REMOTE" main   # 两者应与本地 HEAD 一致
 ```
 
 只有在用户**明确说不要推**时才跳过。若某个 remote 推送失败（如凭据缺失），如实报告是哪个失败、失败原因，不得笼统说"已推送"。
@@ -229,6 +271,8 @@ uv run python3 SKILL_DIR/scripts/send_feishu.py <article.md> --text-file <cards.
 
 Done when: exit 0 and a message_id is printed. On exit 2 (missing config), report the env var setup and deliver local paths instead — do not fake success.
 
+**Move the `workspace/todolist.md` entry from「待处理」to「已完成」**, filling in the article path, then commit+push that change with the rest (or as a follow-up lightweight push per the Intake Gate pattern).
+
 **Always report back to the user**: article path, cards path, content type + triggered conditional modules, validation result (`63 PASS / 0 FAIL` style), push status per remote (`✅`/`❌` each), Feishu status if attempted, and the 30-second overview pasted inline.
 
 ## Common Pitfalls
@@ -240,6 +284,8 @@ Done when: exit 0 and a message_id is printed. On exit 2 (missing config), repor
 5. **Feishu 99991663/99991672 errors** = wrong receive_id_type or bot not in chat. Verify `FEISHU_RECEIVE_ID_TYPE` matches the ID prefix (`oc_`=chat_id, `ou_`=open_id) and the bot has been added to the group.
 6. **Premature completion.** Sending the raw transcript, a flat summary, or the article alone does not count. The deliverable is: article + cards pack + validation exit 0.
 7. **Empty transcript archive.** Writing the JSON is not the same as verifying it. Check the byte size.
+8. **Hardcoded remote alias names.** `origin`/`gitee`/`github` are per-machine local git config, not repository facts — this has been fixed back and forth incorrectly across parallel sessions on different machines more than once. Always resolve by URL (`git remote -v | grep github.com` / `gitee.com`) per the Naming-free snippet in step 7, never assume a specific alias string.
+9. **Skipping the Intake Gate.** Jumping straight to transcript fetch when a YouTube URL arrives, without first logging it in `workspace/todolist.md` and confirming execution — this defeats the multi-agent handoff the todolist exists for. Registration happens even when the user's message already implies "do it now."
 
 ## Verification Checklist
 
