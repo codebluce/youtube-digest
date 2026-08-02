@@ -184,6 +184,14 @@ ASR is done when `<date>-<video_id>.asr.json`, `<date>-<video_id>.full.txt`, and
 
 Save the raw transcript JSON to `SKILL_DIR/workspace/transcripts/<date>-<video_id>.json` for official captions, or keep `SKILL_DIR/workspace/transcripts/<date>-<video_id>.asr.json` for ASR fallback. This is mandatory. **Verify the file is non-empty after writing** — a 0-byte archive has happened before and destroys the ability to re-run.
 
+**If ASR fallback was used, clean up `workspace/audio/` now that the transcript is safely archived:**
+
+```bash
+rm -f SKILL_DIR/workspace/audio/<video_id>.webm SKILL_DIR/workspace/audio/<video_id>.wav
+```
+
+Order matters — only delete **after** confirming the `.asr.json`/`.full.txt`/`.timestamped.txt` archive is non-empty, never before. The audio was always meant to be disposable (see Naming Convention: `workspace/audio/` is gitignored and never committed), but leaving it on disk after the transcript exists just wastes space for no benefit — a 30-minute video's audio is tens of MB, versus a few hundred KB of archived text. Skip this step when the transcript came from YouTube captions directly (no audio was ever downloaded in that path).
+
 ### 3. Determine content type
 
 Load `references/content-types.md` and run its 4-step decision flow **in order, stopping at the first match**. The type determines which conditional modules are mandatory. Do not choose by feel; do not revisit the decision after writing.
@@ -286,6 +294,7 @@ Done when: exit 0 and a message_id is printed. On exit 2 (missing config), repor
 7. **Empty transcript archive.** Writing the JSON is not the same as verifying it. Check the byte size.
 8. **Hardcoded remote alias names.** `origin`/`gitee`/`github` are per-machine local git config, not repository facts — this has been fixed back and forth incorrectly across parallel sessions on different machines more than once. Always resolve by URL (`git remote -v | grep github.com` / `gitee.com`) per the Naming-free snippet in step 7, never assume a specific alias string.
 9. **Skipping the Intake Gate.** Jumping straight to transcript fetch when a YouTube URL arrives, without first logging it in `workspace/todolist.md` and confirming execution — this defeats the multi-agent handoff the todolist exists for. Registration happens even when the user's message already implies "do it now."
+10. **Leftover audio in `workspace/audio/`.** ASR fallback downloads/normalizes audio there; step 2 includes a cleanup command run right after the transcript archive is verified non-empty. If a run gets interrupted before that cleanup, stray `.webm`/`.wav` files can accumulate silently (gitignored, so they never show up in `git status` — check the directory directly).
 
 ## Verification Checklist
 
