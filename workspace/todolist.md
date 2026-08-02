@@ -12,7 +12,7 @@
 
 | 添加日期 | video_id | URL | 备注 | 状态 |
 |---|---|---|---|---|
-| 2026-08-01 | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | — | 处理中（Nolan-Claude） |
+| 2026-08-01 | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | 小Lin说《关税变脸与稀土反杀》，YouTube 无官方字幕，需 ASR fallback（本地转写环境没装齐） | 待处理 |
 
 ---
 
