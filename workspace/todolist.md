@@ -12,7 +12,7 @@
 
 | 添加日期 | video_id | URL | 备注 | 状态 |
 |---|---|---|---|---|
-| 2026-08-01 | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | 小Lin说《关税变脸与稀土反杀》，YouTube 无官方字幕，需 ASR fallback（本地转写环境没装齐） | 待处理 |
+| 2026-08-01 | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | 小Lin说《关税变脸与稀土反杀》，无官方字幕需 ASR fallback。Nolan 本机：yt-dlp.exe 已装（AppData\Roaming\Python\Python312\Scripts\yt-dlp.exe）、faster-whisper medium 已就绪（D:\models\huggingface\models--Systran--faster-whisper-medium）。卡点：本机网络直连 youtube.com 超时，yt-dlp 下载跑不动。下一位认领者若网络可用直接跑 SKILL.md 步骤 1 末尾 ASR fallback 命令即可 | 待处理 |
 
 ---
 
