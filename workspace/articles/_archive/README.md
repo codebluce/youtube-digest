@@ -20,21 +20,21 @@
 `nilNLfW7izg`（SK海力士）：
 
 ```
-../2026-07-28-nilNLfW7izg-sk-hynix-hbm.md         主文
-../2026-07-28-nilNLfW7izg-sk-hynix-hbm-cards.md   卡片包
+../2026-07-28-SK海力士：一家两次被扫地出门的公司，如何卡住全世界AI的脖子.md         主文
+../2026-07-28-SK海力士：一家两次被扫地出门的公司，如何卡住全世界AI的脖子-cards.md   卡片包
 ```
 
 `rDkMK20YHIk`（大摩闭门会，基于既有内容重构——原始转录稿在本机不完整，仅存开场 418 字，未新增字幕之外的数字或事实，详见主文末尾说明）：
 
 ```
-../2026-07-28-rDkMK20YHIk-morgan-stanley-macro-outlook.md         主文
-../2026-07-28-rDkMK20YHIk-morgan-stanley-macro-outlook-cards.md   卡片包
+../2026-07-28-大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露.md         主文
+../2026-07-28-大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露-cards.md   卡片包
 ```
 
 验证方式：
 
 ```bash
-python3 scripts/validate_output.py workspace/articles/2026-07-28-nilNLfW7izg-sk-hynix-hbm.md
-python3 scripts/validate_output.py workspace/articles/2026-07-28-rDkMK20YHIk-morgan-stanley-macro-outlook.md
+python3 scripts/validate_output.py workspace/articles/2026-07-28-SK海力士：一家两次被扫地出门的公司，如何卡住全世界AI的脖子.md
+python3 scripts/validate_output.py workspace/articles/2026-07-28-大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露.md
 python3 scripts/audit_workspace.py   # 全仓审计：双产物配对/transcript归档/逐篇校验
 ```

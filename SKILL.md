@@ -111,37 +111,28 @@ Minimal app permissions: `im:message`, `im:message:send_as_bot`, `im:file`. The 
 
 ## Naming Convention
 
-**格式**：`<YYYY-MM-DD>-<source>-<video_id>-<slug>[.suffix]`
+**article 文件命名格式**：`<YYYY-MM-DD>-<中文标题>[.suffix]`
 
 ```
-日期    取文章 M00「整理日期」的值，不是文件系统 mtime。放最前面是为了
-        让 ls 按时间自然排序——video_id 是随机字符串，排序毫无意义。
-source  视频来源源名,跟 scripts/sources/ 里 adapter 的 SOURCE_NAME 一致,
-        如 'youtube' / 'bilibili'。v3.0 新增,避免出现 YouTube 11 字符 ID
-        与 B站 BV 号的命名空间冲突。
-video_id  源内稳定 ID。保留，用于溯源与去重。
-slug    纯小写英文 + 连字符，≤5 个单词，描述这篇讲的主题，不是来源标签。
-        禁止：中文概念的拼音缩写（如"大摩"写成 damo、"军备"写成 junbei）；
-        冗余后缀（如 -digest——本 skill 产出的都是 digest，加了等于没加）。
-        人名/公司全名的拼音或英文是允许的（如 sk-hynix、fu-peng），
-        问题只在缩写和语义中断，不在"是不是中文来源"。
+日期      取文章 M00「整理日期」的值，不是文件系统 mtime。放最前面是为了
+          让 ls 按时间自然排序。
+中文标题  直接使用文章 H1 主标题，保留中文、空格、标点与关键英文术语。
+          禁止在 article 文件名中加入 source、video_id、英文 slug 或代码化标题。
+
+suffix    主文无 suffix；卡片包加 -cards。
 ```
 
 **示例**：
 
 ```
-2026-07-29-youtube-fKoWrF49Qo8-trump-wealth-playbook.md
-2026-07-29-youtube-fKoWrF49Qo8-trump-wealth-playbook-cards.md
-2026-07-29-youtube-fKoWrF49Qo8.json                       (transcript)
+2026-08-02-AI 巨头资本战争：你以为他们在砸钱买公司，其实是在互相抵押命根子.md
+2026-08-02-AI 巨头资本战争：你以为他们在砸钱买公司，其实是在互相抵押命根子-cards.md
 
-2026-08-02-bilibili-BV1V4Te6MEAu-ai-capital-war.md
-2026-08-02-bilibili-BV1V4Te6MEAu-ai-capital-war-cards.md
-2026-08-02-bilibili-BV1V4Te6MEAu.json                     (transcript)
+2026-08-02-一场采访如何变成话语权审判：Hasan、LBC 与“能不能类比纳粹”的争论.md
+2026-08-02-一场采访如何变成话语权审判：Hasan、LBC 与“能不能类比纳粹”的争论-cards.md
 ```
 
-三类产出统一套用此格式：主文、卡片包（加 `-cards` 后缀）、transcript 归档。ASR fallback 产出的 `.asr.json` / `.full.txt` / `.timestamped.txt` 后缀不变，同样加日期前缀。
-
-**老文件兼容**: v3.0 之前已存在的文章/卡片命名是 `<date>-<video_id>-<slug>.md`(无 source 段),不强制重命名。`validate_output.py` 的卡片自动配对基于文件名 stem,不依赖具体格式,所以新老命名可以共存。新增产出**一律**走新格式。
+**transcript / ASR 归档命名不跟随 article 规则**：为保证机器去重与溯源，transcript 仍使用 `<date>-<source>-<video_id>.json` 或 `<date>-<source>-<video_id>.asr.json/.full.txt/.timestamped.txt`。article 是给人读的产物，用中文标题；transcript 是机器归档，用 source + video_id。
 
 `validate_output.py` 的卡片自动配对基于文件名 stem（去掉 `.md` 后加 `-cards.md`），不依赖具体格式，改名不影响校验。
 
@@ -234,11 +225,11 @@ Load `references/article-blueprint.md` and follow the module lock table exactly:
 
 - **Default output language is Chinese** regardless of the video's language; keep original English terms in parentheses on first appearance when useful.
 - If the transcript exceeds ~50K chars, process in ~40K overlapping chunks and merge before writing.
-- Save to `SKILL_DIR/workspace/articles/<date>-<source>-<video_id>-<slug>.md` when running inside this repo; otherwise `~/youtube-digests/<date>-<source>-<video_id>-<slug>.md`.
+- Save to `SKILL_DIR/workspace/articles/<date>-<中文标题>.md` when running inside this repo; otherwise `~/youtube-digests/<date>-<中文标题>.md`.
 
 ### 5. Write the cards pack
 
-Load `references/cards-spec.md`. Save to `<same_dir>/<date>-<source>-<video_id>-<slug>-cards.md`.
+Load `references/cards-spec.md`. Save to `<same_dir>/<date>-<中文标题>-cards.md`.
 
 Hard constraints: no pipe tables (Feishu does not render them), no `<details>` (Feishu exposes the answers), ≤3500 CJK chars. The cards pack must be usable **without** the article open.
 
@@ -264,8 +255,8 @@ uv run python3 SKILL_DIR/scripts/audit_workspace.py   # 必须 exit 0 才允许�
 
 ```bash
 git add workspace/transcripts/<date>-<source>-<video_id>.json \
-        workspace/articles/<date>-<source>-<video_id>-<slug>.md \
-        workspace/articles/<date>-<source>-<video_id>-<slug>-cards.md
+        workspace/articles/<date>-<中文标题>.md \
+        workspace/articles/<date>-<中文标题>-cards.md
 # ASR fallback 的归档文件（存在才加）：
 #   workspace/transcripts/<date>-<source>-<video_id>.asr.json
 #   workspace/transcripts/<date>-<source>-<video_id>.full.txt

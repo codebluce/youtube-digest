@@ -23,8 +23,12 @@
 | 完成日期 | video_id | 标题 | 主文 | 处理者备注 |
 |---|---|---|---|---|
 | — | — | — | — | （示例行） |
-| 2026-08-02 | BV1V4Te6MEAu | 小Lin说《AI巨头们之间的资本混战，到底是个什么情况？》 | workspace/articles/2026-08-02-bilibili-BV1V4Te6MEAu-ai-capex-war.md | B 站首个多源端到端案例；无站内字幕，yt-dlp 下载 m4a + faster-whisper medium ASR；主文与卡片包 validator 73 PASS。 |
-| 2026-08-02 | BV1x4EE6GE8h | Balle努力做字幕《英国记者采访Hasan结果变成辩论：不能把以色列和纳粹德国做类比吗？》 | workspace/articles/2026-08-02-bilibili-BV1x4EE6GE8h-hasan-lbc-debate.md | 无人工字幕轨；yt-dlp 下载 m4a + 本地 faster-whisper medium ASR；事件复盘型，主文与卡片包 validator 68 PASS。 |
+| 2026-07-30 | nilNLfW7izg | SK海力士：一家两次被扫地出门的公司，如何卡住全世界AI的脖子 | workspace/articles/2026-07-28-SK海力士：一家两次被扫地出门的公司，如何卡住全世界AI的脖子.md | 历史产出补录；已统一 article 中文命名。 |
+| 2026-07-30 | rDkMK20YHIk | 大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露 | workspace/articles/2026-07-28-大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露.md | 历史产出补录；已统一 article 中文命名。 |
+| 2026-07-30 | uilXQ1AAru8 | AI 上游硬件不是坏了，而是到了最容易被杠杆反噬的阶段 | workspace/articles/2026-07-28-AI 上游硬件不是坏了，而是到了最容易被杠杆反噬的阶段.md | 历史产出补录；已统一 article 中文命名。 |
+| 2026-07-30 | fKoWrF49Qo8 | 特朗普的赚钱 2.0：当「阳光」从消毒剂变成防护罩 | workspace/articles/2026-07-29-特朗普的赚钱 2.0：当「阳光」从消毒剂变成防护罩.md | 历史产出补录；已统一 article 中文命名。 |
+| 2026-08-02 | BV1V4Te6MEAu | 小Lin说《AI巨头们之间的资本混战，到底是个什么情况？》 | workspace/articles/2026-08-02-AI 巨头资本战争：你以为他们在砸钱买公司，其实是在互相抵押命根子.md | B 站首个多源端到端案例；无站内字幕，yt-dlp 下载 m4a + faster-whisper medium ASR；主文与卡片包 validator 73 PASS。 |
+| 2026-08-02 | BV1x4EE6GE8h | Balle努力做字幕《英国记者采访Hasan结果变成辩论：不能把以色列和纳粹德国做类比吗？》 | workspace/articles/2026-08-02-一场采访如何变成话语权审判：Hasan、LBC 与“能不能类比纳粹”的争论.md | 无人工字幕轨；yt-dlp 下载 m4a + 本地 faster-whisper medium ASR；事件复盘型，主文与卡片包 validator 68 PASS。 |
 
 ---
 
