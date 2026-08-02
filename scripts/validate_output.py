@@ -43,7 +43,6 @@ ARTICLE_ANCHORS: list[tuple[str, str, bool]] = [
     ("M01", "内容类型", False),
     ("M02", "可信度总账", False),
     ("M03", "失效条件", True),
-    ("M04", "怎么读这篇", False),
     ("M05", "30 秒速览", False),
     ("M06", "知识地图", False),
     ("M07", "📌 Takeaway", False),
@@ -142,7 +141,7 @@ def extract_section(text: str, anchor: str) -> str | None:
     """提取标题行含 anchor 的模块正文。
 
     两个必须处理的边界：
-    1. 必须锚定到标题行（## / ### / ####），否则会误匹配「怎么读这篇」导航块中
+    1. 必须锚定到标题行（## / ### / ####），否则会误匹配导航或引用中
        提及的同名模块——那里只是索引，不含模块内容。
     2. 只在同级或更高级标题处截断，否则 `## 转述弹药库` 会被其下的
        `### 17.1 三档主稿` 提前切断，丢掉全部子模块内容。
@@ -251,6 +250,9 @@ def check_article(text: str, ctype: str, rep: Report) -> None:
             )
             continue
         rep.check(present, f"[{mid}] {anchor}", f"缺失必选模块，锚点词「{anchor}」未出现")
+
+    # 1b. 已废弃模块不得出现
+    rep.check("怎么读这篇" not in text, "[M04] 不产出已废弃阅读路径", "发现已废弃模块「怎么读这篇」")
 
     # 2. 可信度符号白名单
     for pattern, desc in ILLEGAL_TAG_PATTERNS:
