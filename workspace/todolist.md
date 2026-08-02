@@ -12,7 +12,7 @@
 
 | 添加日期 | video_id | URL | 备注 | 状态 |
 |---|---|---|---|---|
-| 2026-08-01 | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | — | 待处理 |
+| 2026-08-01 | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | — | 处理中（Nolan-Claude） |
 
 ---
 
