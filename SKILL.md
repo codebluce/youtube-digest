@@ -89,9 +89,9 @@ export TRANSFORMERS_CACHE="$HF_HOME/transformers"
    - 新源 → 由新 adapter 决定;同一接口约束下什么源都行
 2. **ASR fallback** — 字幕不可用 (`CaptionsUnavailableError` / exit 3) 且**用户明确同意音频处理**时,统一下载 + 本地转写。这一步与源头**完全无关**:
    - yt-dlp 原生支持所有已注册源(YouTube / Bilibili 都是开箱即用)
-   - faster-whisper 默认 `medium` 模型,默认语言 `zh`
+   - faster-whisper 默认 `large-v3-turbo` 模型,默认语言 `zh`(弱 CPU 机器可用 `--model medium` 降级)
    - cache 目录取决于 `HF_HOME`(见 Setup,不写死路径)
-   - CPU-only 机器上 `medium` 跑 30 分钟视频可能要几十分钟,跨平台一致
+   - CPU-only 机器上 `large-v3-turbo` 跑 30 分钟视频约需 10-15 分钟(M4 Pro 实测 ~2.7x 实时);`medium` 更慢但跨平台一致
    - 文章 M00 元信息标注 `文本来源：本地 ASR 转写`(由 ASR 得到时);不得假装 ASR 是官方字幕
 
 **B 站特殊环境变量(可选)**: `BILIBILI_SESSDATA` — 配置后可尝试拉 AI 字幕;不配也不阻塞,直接走 ASR fallback。
@@ -194,7 +194,7 @@ ffmpeg -y -i SKILL_DIR/workspace/audio/<video_id>.webm -ar 16000 -ac 1 -c:a pcm_
 
 # 3) faster-whisper 本地转写 (HF_HOME 等 cache 变量由 Setup 段设置,不在此硬编码路径)
 uv run python3 SKILL_DIR/scripts/asr_faster_whisper.py SKILL_DIR/workspace/audio/<video_id>.wav \
-  --model medium --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<source>-<video_id>
+  --model large-v3-turbo --language zh --output-prefix SKILL_DIR/workspace/transcripts/<date>-<source>-<video_id>
 ```
 
 (`<video_id>.wav` 在 `workspace/audio/` 是 gitignored 临时文件,无需日期前缀。`--output-prefix` 指向 `workspace/transcripts/` 是正式归档,按 Naming Convention 拼 `<date>-<source>-<video_id>`。)

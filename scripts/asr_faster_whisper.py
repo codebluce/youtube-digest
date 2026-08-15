@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Transcribe local audio/video with faster-whisper.
 
-Default model: medium. Default language: zh.
+Default model: large-v3-turbo. Default language: zh.
+
+Model choice rationale:
+    large-v3-turbo offers near-large-v3 accuracy at ~2x the speed (≈809M params,
+    int8 ≈1.6GB, ≈1.9GB RSS at runtime). On Apple Silicon M-series it runs CPU-only
+    (CTranslate2 has no Metal backend), but the P-cores + Accelerate int8 path is
+    fast enough for typical video lengths. Falls back to `medium` on weaker machines
+    via --model medium. Set HF_HUB_DISABLE_XET=1 behind a HF mirror to avoid Xet 401s.
 
 Cache directory resolution (platform-agnostic, no hardcoded drive/path):
     1. --cache-dir if explicitly passed
@@ -10,7 +17,7 @@ Cache directory resolution (platform-agnostic, no hardcoded drive/path):
 
 Usage:
     python scripts/asr_faster_whisper.py workspace/audio/video.webm \
-      --model medium --language zh --output-prefix workspace/transcripts/video
+      --model large-v3-turbo --language zh --output-prefix workspace/transcripts/video
 """
 
 from __future__ import annotations
@@ -43,6 +50,10 @@ def set_hf_cache(cache_dir: Path) -> None:
     os.environ.setdefault("HF_HOME", str(cache_dir))
     os.environ.setdefault("HF_HUB_CACHE", str(cache_dir / "hub"))
     os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_dir / "transformers"))
+    # Mirror + disable Xet backend so first-run downloads work behind a CN mirror
+    # without 401/Xet-CDN timeouts. Only setdefault — explicit env wins.
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     (cache_dir / "hub").mkdir(parents=True, exist_ok=True)
     (cache_dir / "transformers").mkdir(parents=True, exist_ok=True)
 
@@ -50,7 +61,7 @@ def set_hf_cache(cache_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="ASR transcription via faster-whisper")
     parser.add_argument("input", help="audio/video file path")
-    parser.add_argument("--model", default="medium", help="Whisper model name, default: medium")
+    parser.add_argument("--model", default="large-v3-turbo", help="Whisper model name, default: large-v3-turbo (fallback: medium on weaker CPUs)")
     parser.add_argument("--language", default="zh", help="language code, default: zh")
     parser.add_argument("--device", default="cpu", help="cpu or cuda, default: cpu")
     parser.add_argument("--compute-type", default="int8", help="default: int8 for CPU")
