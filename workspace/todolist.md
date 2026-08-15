@@ -12,7 +12,6 @@
 
 | 添加日期 | source | video_id | URL | 备注 | 状态 |
 |---|---|---|---|---|---|
-| 2026-08-16 | youtube | NEHcGq80GQ0 | https://www.youtube.com/watch?v=NEHcGq80GQ0 | 用户直接发起加工 | 处理中（Nolan Mac / Claude） |
 | 2026-08-01 | youtube | WTz7LaHuqMw | https://www.youtube.com/watch?v=WTz7LaHuqMw | 小Lin说《关税变脸与稀土反杀》，无官方字幕需 ASR fallback。Nolan 本机：yt-dlp.exe 已装（AppData\Roaming\Python\Python312\Scripts\yt-dlp.exe）、faster-whisper medium 已就绪（D:\models\huggingface\models--Systran--faster-whisper-medium）。卡点：本机网络直连 youtube.com 超时，yt-dlp 下载跑不动。下一位认领者若网络可用直接跑 SKILL.md 步骤 1 末尾 ASR fallback 命令即可 | 待处理 |
 
 ---
@@ -31,6 +30,7 @@
 | 2026-08-02 | BV1V4Te6MEAu | 小Lin说《AI巨头们之间的资本混战，到底是个什么情况？》 | workspace/articles/2026-08-02-AI 巨头资本战争：你以为他们在砸钱买公司，其实是在互相抵押命根子.md | B 站首个多源端到端案例；无站内字幕，yt-dlp 下载 m4a + faster-whisper medium ASR；主文与卡片包 validator 73 PASS。 |
 | 2026-08-02 | BV1x4EE6GE8h | Balle努力做字幕《英国记者采访Hasan结果变成辩论：不能把以色列和纳粹德国做类比吗？》 | workspace/articles/2026-08-02-一场采访如何变成话语权审判：Hasan、LBC 与“能不能类比纳粹”的争论.md | 无人工字幕轨；yt-dlp 下载 m4a + 本地 faster-whisper medium ASR；事件复盘型，主文与卡片包 validator 68 PASS。 |
 | 2026-08-07 | if4FrsR3qb4 | 香港金融界演讲《K型分化的破局点：为什么中国把提振消费押在社会保障上》 | workspace/articles/2026-08-07-K型分化的破局点：为什么中国把提振消费押在社会保障上.md | 无官方字幕；yt-dlp 下载 webm + 本地 faster-whisper large-v3-turbo ASR（22.4 分钟，640 段）；宏观策略型，主文与卡片包 validator 72 PASS。 |
+| 2026-08-16 | NEHcGq80GQ0 | 硅谷101《开源不是情怀是武器：中国模型厂商把「开放」本身做成了竞争打法》 | workspace/articles/2026-08-16-开源不是情怀是武器：中国模型厂商把「开放」本身做成了竞争打法.md | 官方字幕可用（596 段，23:02）；公司行业研究型，主文与卡片包 validator 73 PASS。 |
 
 ---
 
