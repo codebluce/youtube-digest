@@ -290,6 +290,36 @@ git ls-remote "$GH_REMOTE" main && git ls-remote "$GITEE_REMOTE" main   # 两者
 
 只有在用户**明确说不要推**时才跳过。若某个 remote 推送失败（如凭据缺失），如实报告是哪个失败、失败原因，不得笼统说"已推送"。
 
+### 7.5 Push to Obsidian vault — DEFAULT, not opt-in
+
+**推送到 Obsidian vault 是默认动作，不需要用户开口要求。** 主文 + 卡片包会被拷到 vault 仓库的「深度分析」文件夹，然后双推到 vault 自己的 GitHub / Gitee 两个 remote。
+
+**vault 克隆位置**：`~/Documents/Obsidian01`（本机规范位置；如这台机器克隆在别处，用环境变量 `VAULT_DIR` 覆盖）。首次使用前先克隆并配好双 remote：
+
+```bash
+cd ~/Documents
+git clone --depth 20 --single-branch --branch main \
+    git@github.com:codebluce/Obsidian-Vault.git Obsidian01
+cd Obsidian01
+git remote rename origin github
+git remote add gitee git@gitee.com:ppwupp/obsidian-vault.git
+git fetch gitee
+```
+
+之后每次产出一篇 digest（三件套已通过步骤 6 校验、步骤 7 双推完成）：
+
+```bash
+uv run python3 SKILL_DIR/scripts/push_to_vault.py \
+    workspace/articles/<date>-<中文标题>.md \
+    workspace/articles/<date>-<中文标题>-cards.md
+```
+
+脚本做的事：定位 vault（`$VAULT_DIR` 或 `~/Documents/Obsidian01`）→ 建「深度分析」目录（如缺）→ 拷入主文 + 卡片包（保留原文件名）→ commit → 按 URL 现查 github/gitee remote 别名 → 分别 push → 用 `git ls-remote` 验证两端 HEAD 与本地一致。
+
+Done when: 脚本 exit 0，最后一行 JSON 打印 `pushed.github.head == pushed.gitee.head`。**Remote 别名规则与步骤 7 相同**——绝不假设 `origin` 在哪边。推送失败（如 vault 克隆缺失、remote 未配、push 被拒）时脚本 exit 非零，如实报告是哪个环节、哪一端失败，不得笼统说"已推送"。
+
+用户明确说不要推 vault 时才跳过本步。
+
 ### 8. Deliver
 
 **If the user asked for Feishu** — send both, cards as message body, article as attachment:
