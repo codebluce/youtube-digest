@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Push a youtube-digest article pair (main article + cards) into an Obsidian
+Push a youtube-digest article set (main article + deck) into an Obsidian
 vault repo and publish it to the vault's「深度分析」folder on both remotes.
 
 Default behaviour (no additional prompt to the user):
-    python3 push_to_vault.py <article.md> <cards.md>
+    python3 push_to_vault.py <article.md> [deck.tsv]
+
+    deck 省略时自动取同目录的 <article_stem>-deck.tsv。
+    卡片包产物已于 blueprint v4.0 取消，本脚本不再接受 cards 参数。
+    卡组进 vault 是有意的：Obsidian 里能直接看到它，也方便从手机导进 Anki。
 
 It will:
   1. Locate the vault clone at $VAULT_DIR (default: workspace/obsidian-vault
@@ -85,14 +89,19 @@ def default_branch(vault: Path, remote: str):
 
 
 def main():
-    if len(sys.argv) != 3:
-        fail("usage: push_to_vault.py <article.md> <cards.md>", code=2)
+    if len(sys.argv) not in (2, 3):
+        fail("usage: push_to_vault.py <article.md> [deck.tsv]", code=2)
 
     article = Path(sys.argv[1]).expanduser().resolve()
-    cards = Path(sys.argv[2]).expanduser().resolve()
-    for p in (article, cards):
-        if not p.is_file():
-            fail(f"missing file: {p}", code=2)
+    if not article.is_file():
+        fail(f"missing file: {article}", code=2)
+
+    if len(sys.argv) == 3:
+        deck = Path(sys.argv[2]).expanduser().resolve()
+    else:
+        deck = article.with_name(f"{article.stem}-deck.tsv")
+    if not deck.is_file():
+        fail(f"missing deck: {deck}（v4.0 起卡组是必交产物，先跑 build_deck.py）", code=2)
 
     vault = Path(os.environ.get(
         "VAULT_DIR",
@@ -110,7 +119,7 @@ def main():
     target_dir.mkdir(parents=True, exist_ok=True)
 
     copied = []
-    for src in (article, cards):
+    for src in (article, deck):
         dst = target_dir / src.name
         shutil.copy2(src, dst)
         copied.append(str(dst.relative_to(vault)))

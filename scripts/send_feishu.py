@@ -88,9 +88,8 @@ def main():
     p.add_argument("file", help="local file path to send")
     p.add_argument("--text", default=None, help="optional text message sent before the file")
     p.add_argument("--text-file", dest="text_file", default=None,
-                   help="read the preceding text message from a file (use for the cards pack, "
-                        "which is sent as message body rather than as an attachment). "
-                        "Mutually exclusive with --text.")
+                   help="read the preceding text message from a file, sent as message body "
+                        "rather than as an attachment. Mutually exclusive with --text.")
     p.add_argument("--to", default=None, help="override FEISHU_RECEIVE_ID")
     p.add_argument("--type", dest="rtype", default=None,
                    help="override FEISHU_RECEIVE_ID_TYPE")
@@ -125,8 +124,7 @@ def main():
                 body_text = fh.read()
         except OSError as exc:
             fail(f"cannot read text file: {exc}", code=2)
-        # Feishu rejects oversized text payloads; the cards pack is capped at
-        # 3500 CJK chars by cards-spec, so this only guards against misuse.
+        # Feishu rejects oversized text payloads; this only guards against misuse.
         # Feishu's limit is on bytes (~150KB); CJK chars are 3 bytes in UTF-8,
         # so guard on encoded length, not codepoint count.
         body_bytes = len(body_text.encode("utf-8"))

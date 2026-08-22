@@ -27,6 +27,7 @@
 | 2026-07-30 | rDkMK20YHIk | 大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露 | workspace/articles/2026-07-28-大摩闭门会：AI 硬件跌 20% 不是终结，是三条裂痕同时暴露.md | 历史产出补录；已统一 article 中文命名。 |
 | 2026-07-30 | uilXQ1AAru8 | AI 上游硬件不是坏了，而是到了最容易被杠杆反噬的阶段 | workspace/articles/2026-07-28-AI 上游硬件不是坏了，而是到了最容易被杠杆反噬的阶段.md | 历史产出补录；已统一 article 中文命名。 |
 | 2026-07-30 | fKoWrF49Qo8 | 特朗普的赚钱 2.0：当「阳光」从消毒剂变成防护罩 | workspace/articles/2026-07-29-特朗普的赚钱 2.0：当「阳光」从消毒剂变成防护罩.md | 历史产出补录；已统一 article 中文命名。 |
+| 2026-08-22 | 89ThCi5qq-A | 硅谷101《「消失」的万亿债务：深挖数据中心「影子借贷」、GPU金融化与次贷风险》 | workspace/articles/2026-08-22-「消失」的万亿债务：巨头们没有还清它，只是把它切成了别人的资产.md | 蓝图 v5.0；字幕经云端 yt-dlp 拉取（youtube-transcript-api 被数据中心 IP 拦）；卡组按需未生成 |
 | 2026-08-02 | BV1V4Te6MEAu | 小Lin说《AI巨头们之间的资本混战，到底是个什么情况？》 | workspace/articles/2026-08-02-AI 巨头资本战争：你以为他们在砸钱买公司，其实是在互相抵押命根子.md | B 站首个多源端到端案例；无站内字幕，yt-dlp 下载 m4a + faster-whisper medium ASR；主文与卡片包 validator 73 PASS。 |
 | 2026-08-02 | BV1x4EE6GE8h | Balle努力做字幕《英国记者采访Hasan结果变成辩论：不能把以色列和纳粹德国做类比吗？》 | workspace/articles/2026-08-02-一场采访如何变成话语权审判：Hasan、LBC 与“能不能类比纳粹”的争论.md | 无人工字幕轨；yt-dlp 下载 m4a + 本地 faster-whisper medium ASR；事件复盘型，主文与卡片包 validator 68 PASS。 |
 | 2026-08-07 | if4FrsR3qb4 | 香港金融界演讲《K型分化的破局点：为什么中国把提振消费押在社会保障上》 | workspace/articles/2026-08-07-K型分化的破局点：为什么中国把提振消费押在社会保障上.md | 无官方字幕；yt-dlp 下载 webm + 本地 faster-whisper large-v3-turbo ASR（22.4 分钟，640 段）；宏观策略型，主文与卡片包 validator 72 PASS。 |

@@ -2,11 +2,14 @@
 """全仓一致性审计 —— 在 validate_output.py 单篇校验之上，检查 workspace 级别的配对完整性。
 
 检查项：
-  1. 每篇正式文章 articles/<date>-<中文标题>.md 都有对应的 <stem>-cards.md
+  1. 若某篇生成了 <stem>-deck.tsv，则它必须非空（v5.1 起卡组是按需产物，缺席不算问题）
   2. 每篇文章通过 workspace/todolist.md 已完成表关联 video_id，并在 transcripts/ 下有非空归档（.json 或 .asr.json）
   3. transcript 归档 JSON 可解析且 full_text 非空
   4. 逐篇跑 validate_output.py，任一篇 FAIL 则整体 FAIL
-  5. .env 未被 git 追踪（防 S1 类事故复发）
+  5. .env 未被 git 追踪（防密钥泄露事故复发）
+
+v5.1：卡片包已取消，卡组改为按需生成。仓库里遗留的 `*-cards.md` 是历史产物，
+跳过不检查、也不当作文章。
 
 用法:
     python3 audit_workspace.py [--skip-validator]
@@ -107,12 +110,15 @@ def main() -> int:
         vid = done_map.get(rel_article)
         print(f"■ {art.name}")
 
-        # 1. 卡片包配对
-        cards = art.with_name(f"{art.stem}-cards.md")
-        if cards.is_file() and cards.stat().st_size > 0:
-            ok(f"卡片包配对 ({cards.name})")
+        # 1. 卡组配对（只对 v4.0 及以后的文章要求；老文章豁免）
+        deck = art.with_name(f"{art.stem}-deck.tsv")
+        if not deck.is_file():
+            # v5.1 起卡组按需生成，没有不算问题
+            ok("本篇未生成卡组（按需产物）")
+        elif deck.stat().st_size > 0:
+            ok(f"卡组存在且非空 ({deck.name})")
         else:
-            fail(f"缺卡片包或为空 — 期望 {cards.name}")
+            fail(f"卡组为 0 字节 — {deck.name}")
             problems += 1
 
         # 2+3. transcript 归档存在、非空、可解析
@@ -150,7 +156,7 @@ def main() -> int:
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             tail = (r.stdout + r.stderr).strip().splitlines()
-            verdict = next((ln for ln in reversed(tail) if ln.startswith("结论")), tail[-1] if tail else "")
+            verdict = next((ln for ln in reversed(tail) if ln.startswith(("结论", "跳过"))), tail[-1] if tail else "")
             if r.returncode == 0:
                 ok(f"validator 通过 ({verdict.strip()})")
             else:
@@ -162,7 +168,7 @@ def main() -> int:
     if problems:
         print(f"审计未通过：{problems} 个问题。修复后重跑，不得推送不合规产出。")
         return 1
-    print("审计通过：全部文章双产物齐备、transcript 归档有效、单篇校验通过。")
+    print("审计通过：transcript 归档有效、单篇校验通过（卡组按需，缺席不算问题）。")
     return 0
 
 
